@@ -1,0 +1,137 @@
+name: CI — SmartPark Chatbot
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ─── Lint & Static Analysis ─────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install lint tools
+        run: pip install ruff
+
+      - name: Run Ruff
+        run: ruff check src/ tests/ --select E,F,W,I --ignore E501
+
+  # ─── Unit & Integration Tests ───────────────────────────────────────────────
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create .env for CI
+        run: |
+          echo "OPENAI_API_KEY=" >> .env
+          echo "USE_OPENAI_EMBEDDINGS=false" >> .env
+          echo "EMBEDDING_MODEL=all-MiniLM-L6-v2" >> .env
+          echo "VECTOR_STORE_TYPE=chroma" >> .env
+          echo "CHROMA_PERSIST_DIR=./data/chroma_db_ci" >> .env
+          echo "SQLITE_DB_PATH=./data/parking_ci.db" >> .env
+          echo "LOG_LEVEL=WARNING" >> .env
+          echo "ADMIN_PASSWORD=admin123" >> .env
+
+      # Run fast unit tests first (guardrails, reservation logic, DB)
+      - name: Run unit tests
+        run: |
+          pytest tests/test_guardrails.py tests/test_reservation.py tests/test_database.py \
+            -v --tb=short --timeout=60
+
+      # Run evaluation metric tests (pure Python, no external deps)
+      - name: Run evaluation metric tests
+        run: |
+          pytest tests/test_evaluation.py -v --tb=short --timeout=120 \
+            -k "not TestRetrievalEvaluation"
+
+      # Run RAG / vector store tests (downloads the embedding model — cached after first run)
+      - name: Run RAG tests
+        run: |
+          pytest tests/test_rag.py -v --tb=short --timeout=300
+
+      # Run RAG-dependent evaluation tests
+      - name: Run evaluation integration tests
+        run: |
+          pytest tests/test_evaluation.py::TestRetrievalEvaluation -v --tb=short --timeout=300
+
+      # Run chatbot graph tests
+      - name: Run chatbot graph tests
+        run: |
+          pytest tests/test_chatbot.py -v --tb=short --timeout=300
+
+      - name: Generate coverage report
+        run: |
+          pip install pytest-cov
+          pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing \
+            --timeout=300 -q
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ─── Build check ────────────────────────────────────────────────────────────
+  build-check:
+    name: Import check
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check all modules import successfully
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          import src.config
+          import src.chatbot.state
+          import src.chatbot.prompts
+          import src.chatbot.llm
+          import src.database.models
+          import src.database.operations
+          import src.guardrails.filters
+          import src.reservation.handler
+          import src.evaluation.metrics
+          print('All modules imported successfully.')
+          "

@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "smartpark_chatbot": "./src/ui/studio_entry.py:graph"
+  },
+  "env": ".env"
+}

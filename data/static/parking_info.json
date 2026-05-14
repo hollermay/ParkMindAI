@@ -1,0 +1,191 @@
+{
+  "parking_facility": {
+    "name": "SmartPark City Center",
+    "type": "Multi-level indoor parking facility",
+    "capacity": {
+      "total_spaces": 500,
+      "standard": 350,
+      "premium": 80,
+      "ev_charging": 50,
+      "disabled": 20
+    },
+    "levels": 5,
+    "description": "SmartPark City Center is a state-of-the-art multi-level indoor parking facility located in the heart of the city. Opened in 2020, it offers a safe, secure, and convenient parking experience with 24/7 surveillance and modern amenities. The facility accommodates up to 500 vehicles across 5 levels, with dedicated zones for standard, premium, electric vehicle, and disabled parking."
+  },
+  "location": {
+    "description": "SmartPark City Center is located at 123 Innovation Boulevard in the heart of City Center. The parking facility is easy to find and well connected by metro, bus, and tram. It is opposite City Hall and a short walk from Central Train Station.",
+    "address": "123 Innovation Boulevard, City Center, Metro City, 10001",
+    "entrance": "Main entrance on Innovation Boulevard; secondary entrance via Commerce Lane (Level B1).",
+    "landmark_directions": "Located directly opposite City Hall, 200 meters east of Central Train Station, and adjacent to the Green Park Shopping Mall.",
+    "how_to_get_there": "From Central Train Station take Exit B for a 3-minute walk heading east along Innovation Boulevard. The parking facility is clearly signposted.",
+    "public_transport": [
+      "Metro: Central Station (Lines 1, 3) — 3-minute walk from Exit B",
+      "Bus: Routes 12, 45, 67 — stop directly outside on Innovation Boulevard",
+      "Tram: Line T2 — SmartPark stop (in front of the building)"
+    ],
+    "coordinates": {
+      "latitude": 40.7128,
+      "longitude": -74.006
+    },
+    "google_maps": "https://maps.example.com/smartpark-city-center"
+  },
+  "zones": {
+    "Zone A": {
+      "level": "Ground floor (L1)",
+      "type": "Premium",
+      "spaces": 80,
+      "description": "Premium zone on the ground floor with the widest spaces (3.2 m wide), nearest to all exits and lifts. Ideal for luxury or oversized vehicles.",
+      "features": ["Extra-wide bays", "Covered", "Air-conditioned", "Priority exit access"]
+    },
+    "Zone B": {
+      "level": "Level 2 and Level 3",
+      "type": "Standard",
+      "spaces": 200,
+      "description": "Standard zone spread across levels 2 and 3. Spacious bays (2.5 m wide) suitable for all regular passenger vehicles. Well-lit and covered.",
+      "features": ["Well-lit", "Covered", "CCTV monitored", "Lift access"]
+    },
+    "Zone C": {
+      "level": "Level 4",
+      "type": "Standard Economy",
+      "spaces": 150,
+      "description": "Economy standard parking on level 4. Slightly smaller bays (2.3 m wide) at the lowest rates. Suitable for compact cars.",
+      "features": ["CCTV monitored", "Lift access", "Lowest rates"]
+    },
+    "Zone D": {
+      "level": "Level 5 (rooftop)",
+      "type": "EV Charging",
+      "spaces": 50,
+      "description": "Dedicated electric vehicle charging zone on the rooftop level. All 50 bays are equipped with Level 2 (AC) and 10 bays with DC fast chargers.",
+      "features": ["Level 2 AC chargers (40 bays)", "DC fast chargers (10 bays)", "Open sky", "Solar-powered canopy"]
+    },
+    "Zone E": {
+      "level": "Ground floor (L1) — east wing",
+      "type": "Disabled / Accessible",
+      "spaces": 20,
+      "description": "Accessible parking for badge holders. Extra-wide bays (3.8 m) with ramp access and proximity to lifts and the main entrance.",
+      "features": ["Extra-wide bays (3.8 m)", "Ramp access", "Closest to lift", "Free for valid disability badge holders"]
+    }
+  },
+  "pricing_overview": {
+    "note": "Prices shown are standard rack rates. Current real-time prices may vary — ask the chatbot for live pricing.",
+    "standard_zone_b_c": {
+      "hourly": "$3.00",
+      "daily_max": "$20.00",
+      "weekly": "$90.00",
+      "monthly": "$280.00"
+    },
+    "premium_zone_a": {
+      "hourly": "$6.00",
+      "daily_max": "$35.00",
+      "weekly": "$160.00",
+      "monthly": "$500.00"
+    },
+    "ev_zone_d": {
+      "parking_hourly": "$3.00",
+      "charging_per_kwh": "$0.30",
+      "daily_max": "$22.00"
+    },
+    "disabled_zone_e": {
+      "cost": "Free with valid disability badge; standard rates without badge"
+    },
+    "payment_methods": ["Credit/Debit cards (Visa, Mastercard, Amex)", "Apple Pay", "Google Pay", "Bank transfer (for advance reservations)", "Cash at staffed booths (staffed hours only)"]
+  },
+  "working_hours": {
+    "facility_access": "24 hours a day, 7 days a week, 365 days a year",
+    "staffed_booth_hours": {
+      "Monday_Friday": "07:00 – 22:00",
+      "Saturday": "08:00 – 20:00",
+      "Sunday": "09:00 – 18:00"
+    },
+    "self_service": "Automated payment machines and app-based entry are available 24/7 outside staffed hours.",
+    "note": "The facility never closes. Automated access and payment operate 24/7."
+  },
+  "amenities": {
+    "security": [
+      "24/7 CCTV surveillance on all levels and access points",
+      "Trained security personnel on-site during staffed hours",
+      "Intercom system at each level connected to security booth",
+      "Emergency SOS buttons at every 20 metres",
+      "Perimeter lighting and anti-tailgating barriers at entry/exit"
+    ],
+    "convenience": [
+      "High-speed Wi-Fi on all levels",
+      "Compressed air for tyre inflation (free, Level 1)",
+      "Car wash service booking via app (Mon–Sat 08:00–18:00)",
+      "Luggage trolleys available near main lift lobby",
+      "Parcel locker service (Amazon Hub compatible)"
+    ],
+    "accessibility": [
+      "Step-free access throughout via lifts and ramps",
+      "Tactile paving and audio guidance in lifts",
+      "Wheelchair-accessible customer service desk",
+      "Priority parking in Zone E for disabled badge holders"
+    ],
+    "environment": [
+      "Solar panels on rooftop generating 30% of facility energy",
+      "LED lighting with motion sensors reducing energy use by 40%",
+      "EV charging infrastructure (Zone D)",
+      "Rainwater harvesting used for cleaning operations"
+    ]
+  },
+  "booking_process": {
+    "overview": "Reservations can be made through the SmartPark chatbot, website, or at the staffed booth. Walk-in availability is subject to real-time space availability.",
+    "required_information": [
+      "First name",
+      "Last name / Surname",
+      "Vehicle registration plate number",
+      "Preferred parking zone",
+      "Reservation start date and time",
+      "Reservation end date and time"
+    ],
+    "confirmation": "All reservations require administrator confirmation. You will receive a confirmation number once approved, typically within 30 minutes during staffed hours.",
+    "cancellation_policy": "Cancel up to 24 hours before arrival for a full refund. Cancellations within 24 hours will be charged 50% of the total booking cost.",
+    "modification": "Reservations can be modified up to 2 hours before the start time via the chatbot or website.",
+    "maximum_duration": "The maximum single reservation period is 30 days.",
+    "minimum_duration": "Minimum reservation is 1 hour."
+  },
+  "contact": {
+    "customer_service_phone": "+1 (555) 123-4567",
+    "email": "support@smartpark-citycenter.example.com",
+    "emergency_line": "+1 (555) 911-PARK (7275) — available 24/7",
+    "website": "https://smartpark-citycenter.example.com",
+    "social_media": {
+      "twitter": "@SmartParkCity",
+      "facebook": "facebook.com/SmartParkCityCenter"
+    }
+  },
+  "policies": {
+    "vehicle_types_allowed": ["Passenger cars", "Motorcycles (Zone B/C only — dedicated bays)", "SUVs and crossovers", "Electric vehicles", "Hybrid vehicles"],
+    "vehicle_types_not_allowed": ["Heavy trucks or lorries", "Camper vans or RVs", "Vehicles carrying hazardous materials", "Vehicles exceeding 2.1 m in height (except Zone D rooftop)"],
+    "speed_limit": "10 km/h (6 mph) within the facility",
+    "general_rules": [
+      "No idling for more than 2 minutes inside the facility",
+      "Pets must remain in vehicles or be carried",
+      "No smoking anywhere inside the facility",
+      "Parking within marked bays only",
+      "Management is not responsible for theft or damage — use at own risk"
+    ]
+  },
+  "faq": [
+    {
+      "question": "Can I enter without a reservation?",
+      "answer": "Yes. Walk-in parking is available subject to real-time availability. Simply drive up to the barrier, take a ticket, and pay when you exit. Pre-booking guarantees your space."
+    },
+    {
+      "question": "Is the parking covered and secure?",
+      "answer": "Yes. All levels except Zone D (rooftop) are fully covered. The entire facility is monitored by 24/7 CCTV and staffed by security during booth hours."
+    },
+    {
+      "question": "What if I lose my ticket?",
+      "answer": "Please visit the customer service desk during staffed hours. A lost ticket fee of $10 applies. Outside staffed hours, use the intercom at the barrier."
+    },
+    {
+      "question": "Can I charge my electric vehicle overnight?",
+      "answer": "Yes. Zone D operates 24/7 and EV bays can be occupied overnight. Charging fees apply per kWh consumed. Ensure your reservation covers the overnight period."
+    },
+    {
+      "question": "Is there a grace period after my reservation ends?",
+      "answer": "A 15-minute grace period is provided. Overstay beyond 15 minutes is charged at the standard hourly rate for that zone."
+    }
+  ]
+}
