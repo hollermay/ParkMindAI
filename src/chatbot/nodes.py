@@ -431,20 +431,52 @@ def collect_reservation(state: ChatState) -> Dict[str, Any]:
 
 def human_approval(state: ChatState) -> Dict[str, Any]:
     """
-    Pause execution and surface the reservation data to the reviewer.
+    Agent 2 integration + HITL pause.
 
-    Uses langgraph.types.interrupt() so that:
-      • LangGraph Studio shows the native Interrupts panel with the data.
-      • The CLI _admin_approval_prompt polls for a decision and resumes
-        the graph with Command(resume={"approved": bool, "notes": str}).
+    Step 1 — Agent 2 (notify_admin tool):
+      Registers the reservation in the shared decision store and sends an
+      email alert to the administrator.  This runs *inside* the graph node
+      so it happens regardless of which frontend (CLI, web, Studio) is used.
 
-    The return value of interrupt() is whatever was passed to Command(resume=...).
+    Step 2 — interrupt():
+      Pauses graph execution.  The request_code generated in Step 1 is
+      included in the interrupt payload so callers can poll without
+      re-registering the request.
+
+    Step 3 — resume (caller side):
+      graph.invoke(Command(resume={"approved": bool, "notes": str}), config=…)
     """
+    import json
     from langgraph.types import interrupt
+    from src.admin_agent.tools import notify_admin
 
     rd = state.get("reservation_data") or {}
+
+    # ── Step 1: Agent 2 — register & notify ──────────────────────────────────
+    rd_for_notify = {
+        k: rd.get(k, "")
+        for k in ("first_name", "last_name", "car_number", "zone", "start_date", "end_date")
+    }
+    request_code = ""
+    try:
+        notify_result = notify_admin.invoke({"reservation_json": json.dumps(rd_for_notify)})
+        # notify_admin returns "Request registered with code: REQ-XXXXXX\n..."
+        for line in notify_result.splitlines():
+            if line.startswith("Request registered with code:"):
+                request_code = line.split(":", 1)[1].strip()
+                break
+        logger.info("[HumanApproval] Agent 2 registered request %s", request_code)
+    except Exception as exc:
+        # Graceful fallback: register directly so the pipeline never stalls
+        logger.warning("[HumanApproval] Agent 2 notify_admin failed (%s) — falling back.", exc)
+        from src.admin_agent import decision_store as _ds
+        request_code = _ds.generate_request_code()
+        _ds.add_pending(request_code, rd_for_notify)
+
+    # ── Step 2: interrupt — pause until admin resumes ─────────────────────────
     decision = interrupt({
         "type": "admin_approval_required",
+        "request_code": request_code,
         "message": (
             f"Please approve or reject this parking reservation:\n"
             f"  Name:    {rd.get('first_name', '')} {rd.get('last_name', '')}\n"

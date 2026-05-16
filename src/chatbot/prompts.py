@@ -94,7 +94,7 @@ RESERVATION_FIELD_PROMPTS = {
 }
 
 RESERVATION_FIELD_ORDER = ["first_name", "last_name", "car_number", "zone",
-                           "start_date", "end_date", "email", "card_number"]
+                           "start_date", "end_date"]
 
 RESERVATION_SUMMARY_TEMPLATE = """Here is a summary of your reservation request:
 

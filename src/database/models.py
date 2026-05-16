@@ -99,17 +99,52 @@ class Reservation(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class User(Base):
+    """Registered client-portal user."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    first_name = Column(String(100), nullable=False)
+    last_name = Column(String(100), nullable=False)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def get_engine(db_url: str):
     """Return a SQLAlchemy engine for the given database URL.
 
     Accepts:
     - Full SQLAlchemy URLs:  postgresql://user:pass@host/db  or  sqlite:///path
     - Legacy bare file paths (e.g. /data/parking.db) — treated as SQLite.
+      (Used only by tests; production must set DATABASE_URL to a PostgreSQL URL.)
     """
     if "://" in db_url:
+        if db_url.startswith("postgresql"):
+            # PostgreSQL: enable connection health checks, pool recycling, and sizing.
+            return create_engine(
+                db_url,
+                echo=False,
+                pool_pre_ping=True,   # validate connections before use
+                pool_recycle=300,     # recycle connections after 5 minutes
+                pool_size=5,
+                max_overflow=10,
+            )
+        if db_url.startswith("sqlite"):
+            # SQLite: allow cross-thread access (needed for tests and dev mode).
+            return create_engine(
+                db_url,
+                echo=False,
+                connect_args={"check_same_thread": False},
+            )
         return create_engine(db_url, echo=False)
-    # Backward-compat: bare file path → SQLite URL
-    return create_engine(f"sqlite:///{db_url}", echo=False)
+    # Backward-compat: bare file path → SQLite URL (tests only)
+    return create_engine(
+        f"sqlite:///{db_url}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
 
 
 def _migrate_schema(engine) -> None:
@@ -152,8 +187,7 @@ def init_db(db_url: str) -> None:
     _migrate_schema(engine)
 
     with Session(engine) as session:
-        # Reset parking spaces to exactly 20 per zone (100 total).
-        # This also handles upgrading from an older seed that had more spaces.
+        # Re-seed parking spaces if the count doesn't match expected total.
         if session.query(ParkingSpace).count() != TOTAL_SPACES:
             session.query(ParkingSpace).delete()
             _seed_parking_spaces(session)
@@ -168,16 +202,15 @@ def init_db(db_url: str) -> None:
 
 # ─── Seed helpers ─────────────────────────────────────────────────────────────
 
-# 20 spots per zone — 100 total
+# Zone-specific space counts — 500 total (A=80, B=200, C=150, D=50, E=20)
 _ZONE_SEED_CONFIG = [
-    ("A", "L1", "premium"),
-    ("B", "L2", "standard"),
-    ("C", "L4", "standard"),
-    ("D", "L5", "ev"),
-    ("E", "L1", "disabled"),
+    ("A", "L1", "premium",  80),
+    ("B", "L2", "standard", 200),
+    ("C", "L4", "standard", 150),
+    ("D", "L5", "ev",        50),
+    ("E", "L1", "disabled",  20),
 ]
-SPACES_PER_ZONE = 20
-TOTAL_SPACES = SPACES_PER_ZONE * len(_ZONE_SEED_CONFIG)  # 100
+TOTAL_SPACES = sum(count for _, _, _, count in _ZONE_SEED_CONFIG)  # 500
 
 
 def _seed_parking_spaces(session: Session) -> None:
@@ -187,8 +220,8 @@ def _seed_parking_spaces(session: Session) -> None:
             bay_number=f"{zone}-{i:03d}",
             space_type=space_type,
         )
-        for zone, level, space_type in _ZONE_SEED_CONFIG
-        for i in range(1, SPACES_PER_ZONE + 1)
+        for zone, level, space_type, count in _ZONE_SEED_CONFIG
+        for i in range(1, count + 1)
     ]
     session.add_all(spaces)
 

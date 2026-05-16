@@ -5,12 +5,12 @@ All writes go through this module so security checks remain centralised.
 import logging
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from src.database.models import Pricing, ParkingSpace, Reservation, WorkingHours, get_engine
+from src.database.models import Pricing, ParkingSpace, Reservation, User, WorkingHours, get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ def cleanup_expired_reservations(db_path: str) -> int:
 
     Returns the number of reservations deleted.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC
     deleted_count = 0
 
     with _get_session(db_path) as session:
@@ -290,7 +290,7 @@ def cleanup_expired_reservations(db_path: str) -> int:
 
 def get_all_reservations(db_path: str) -> list:
     """Return all current (non-expired) reservations — for admin use only."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC
     with _get_session(db_path) as session:
         reservations = (
             session.query(Reservation)
@@ -338,12 +338,12 @@ def get_cancellation_policy(reservation: Reservation) -> dict:
             "reason": f"Reservation is '{reservation.status}' — only approved reservations can be cancelled.",
         }
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC
     created = reservation.created_at
-    # Strip timezone if present (SQLite stores naive datetimes)
+    # Normalise to naive UTC — handles timezone-aware datetimes from in-memory
+    # test fixtures or timezone=True columns.
     if hasattr(created, "tzinfo") and created.tzinfo is not None:
-        from datetime import timezone as _tz
-        created = created.astimezone(_tz.utc).replace(tzinfo=None)
+        created = created.astimezone(timezone.utc).replace(tzinfo=None)
 
     hours_since_booking = (now - created).total_seconds() / 3600
 
@@ -507,3 +507,77 @@ def get_db_pending_reservations(db_path: str) -> list:
         )
         session.expunge_all()
         return pending
+
+
+# ─── User Authentication ──────────────────────────────────────────────────────
+
+def register_user(
+    db_path: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    password: str,
+) -> tuple[bool, str]:
+    """
+    Create a new user account.
+
+    Returns (True, "") on success or (False, error_message) on failure.
+    Uses werkzeug's PBKDF2-HMAC-SHA256 password hashing.
+    """
+    from werkzeug.security import generate_password_hash
+
+    email = email.strip().lower()
+    if not email or not password or not first_name or not last_name:
+        return False, "All fields are required."
+
+    with _get_session(db_path) as session:
+        existing = session.query(User).filter_by(email=email).first()
+        if existing:
+            return False, "An account with this email already exists."
+
+        user = User(
+            first_name=first_name.strip(),
+            last_name=last_name.strip(),
+            email=email,
+            password_hash=generate_password_hash(password),
+        )
+        session.add(user)
+        session.commit()
+        return True, ""
+
+
+def authenticate_user(db_path: str, email: str, password: str) -> Optional[User]:
+    """
+    Verify credentials and return the User object on success, or None on failure.
+    """
+    from werkzeug.security import check_password_hash
+
+    email = email.strip().lower()
+    with _get_session(db_path) as session:
+        user = session.query(User).filter_by(email=email).first()
+        if user and check_password_hash(user.password_hash, password):
+            session.expunge(user)
+            return user
+        return None
+
+
+def get_user_by_id(db_path: str, user_id: int) -> Optional[User]:
+    with _get_session(db_path) as session:
+        user = session.get(User, user_id)
+        if user:
+            session.expunge(user)
+        return user
+
+
+def get_reservations_for_user(db_path: str, email: str) -> list:
+    """Return all reservations associated with the given email, newest first."""
+    email = email.strip().lower()
+    with _get_session(db_path) as session:
+        reservations = (
+            session.query(Reservation)
+            .filter(Reservation.email == email)
+            .order_by(Reservation.created_at.desc())
+            .all()
+        )
+        session.expunge_all()
+        return reservations

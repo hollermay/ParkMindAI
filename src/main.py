@@ -87,17 +87,15 @@ def _print_error(message: str) -> None:
     console.print(f"[bold red]Error:[/] {message}")
 
 
-def _admin_approval_prompt(state_values: dict) -> tuple[bool, str]:
+def _admin_approval_prompt(state_values: dict, request_code: str = "") -> tuple[bool, str]:
     """
     Admin approval flow — dashboard first, terminal fallback.
 
-    Flow:
-      1. Register the request in the REST API decision store.
-      2. Send an email notification (if SMTP configured).
-      3. Show the dashboard URL and wait silently for the admin to decide
-         via the web browser (polling every 2 seconds with a live countdown).
-      4. When the dashboard decision arrives → proceed automatically.
-      5. If the timeout expires → show a terminal prompt as fallback.
+    The human_approval node (Agent 2) registers the request and sends the
+    email notification *before* the interrupt.  This function receives the
+    pre-registered ``request_code`` so it can poll immediately without
+    double-registering.  If no code is supplied (e.g. fallback path), it
+    registers the request itself.
     """
     import time
     from src.admin_agent import decision_store
@@ -109,15 +107,19 @@ def _admin_approval_prompt(state_values: dict) -> tuple[bool, str]:
     dashboard_url = get_admin_url() + "/admin"
     timeout = cfg.ADMIN_DECISION_TIMEOUT
 
-    # ── Register & notify ─────────────────────────────────────────────────────
-    code = decision_store.generate_request_code()
-    rd_for_store = {
-        **rd,
-        "card_masked": mask_card(rd.get("card_number", "")),
-        "email_masked": mask_email(rd.get("email", "")),
-    }
-    decision_store.add_pending(code, rd_for_store)
-    send_notification(code, rd_for_store, get_admin_url())
+    # ── Register & notify (fallback only — normally done by the node) ─────────
+    if not request_code:
+        code = decision_store.generate_request_code()
+        rd_for_store = {
+            **rd,
+            "card_masked": mask_card(rd.get("card_number", "")),
+            "email_masked": mask_email(rd.get("email", "")),
+        }
+        decision_store.add_pending(code, rd_for_store)
+        send_notification(code, rd_for_store, get_admin_url())
+    else:
+        # human_approval node (Agent 2) already registered; just use the code.
+        code = request_code
 
     # ── Show panel ────────────────────────────────────────────────────────────
     console.print(Rule("[bold yellow]⚠  ADMIN APPROVAL REQUIRED  ⚠[/]"))
@@ -267,8 +269,19 @@ def run_chat() -> None:
         graph_state = graph.get_state(config)
 
         if any(t.interrupts for t in (graph_state.tasks or ())):
+            # Extract request_code set by the human_approval node (Agent 2)
+            _interrupt_val: dict = {}
+            for _task in (graph_state.tasks or ()):
+                for _intr in (_task.interrupts or ()):
+                    if isinstance(_intr.value, dict):
+                        _interrupt_val = _intr.value
+                    break
+                break
             # Admin review — poll REST API / email / terminal
-            approved, notes = _admin_approval_prompt(graph_state.values)
+            approved, notes = _admin_approval_prompt(
+                graph_state.values,
+                request_code=_interrupt_val.get("request_code", ""),
+            )
 
             # Resume the graph with the admin decision
             try:

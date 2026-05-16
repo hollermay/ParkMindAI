@@ -103,7 +103,14 @@ def build_vector_store(documents: List[Document] | None = None, force_rebuild: b
     if store_type == "chroma":
         return _get_chroma(documents, force_rebuild)
     elif store_type == "weaviate":
-        return _get_weaviate(documents, force_rebuild)
+        try:
+            return _get_weaviate(documents, force_rebuild)
+        except Exception as exc:
+            logger.warning(
+                "Weaviate unavailable (%s: %s) — falling back to ChromaDB.",
+                type(exc).__name__, exc,
+            )
+            return _get_chroma(documents, force_rebuild)
     else:
         raise ValueError(f"Unsupported VECTOR_STORE_TYPE: {store_type!r}. Choose 'weaviate' or 'chroma'.")
 

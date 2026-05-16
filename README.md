@@ -42,7 +42,7 @@ A production-grade intelligent parking chatbot built with **LangChain**, **LangG
 │       │                                                      │
 │       ├─ info ──→ retrieve_context (ChromaDB / Weaviate)     │
 │       │                │                                     │
-│       │           query_dynamic (PostGreSQL)                 │
+│       │           query_dynamic (PostgreSQL)                 │
 │       │                │                                     │
 │       │           generate_response (LLM)                    │
 │       │                                                      │
@@ -90,7 +90,7 @@ A production-grade intelligent parking chatbot built with **LangChain**, **LangG
 | Data Type | Storage | Examples |
 |-----------|---------|----------|
 | **Static** | ChromaDB vector store | General info, location, zones, policies, FAQ |
-| **Dynamic** | PostGreSQL (via SQLAlchemy) | Prices, availability, working hours, reservations (incl. email, masked card) |
+| **Dynamic** | PostgreSQL (via SQLAlchemy) | Prices, availability, working hours, reservations (incl. email, masked card) |
 
 ---
 
@@ -121,7 +121,7 @@ task_AI/
 │   │   ├── retriever.py        # Similarity search + context formatting
 │   │   └── embeddings.py       # Embedding model factory
 │   ├── database/
-│   │   ├── models.py           # SQLAlchemy ORM models (20 spaces/zone seed)
+│   │   ├── models.py           # SQLAlchemy ORM models (zone-specific space counts, 500 total)
 │   │   └── operations.py       # CRUD, expiry cleanup, cancellation, date-range availability
 │   ├── guardrails/
 │   │   └── filters.py          # Input/output safety filters
@@ -135,7 +135,7 @@ task_AI/
 │   ├── static/
 │   │   └── parking_info.json           # Static knowledge base
 │   ├── chroma_db/                      # ChromaDB vector store (auto-created)
-│   ├── parking.db                      # PostGreSQL database (auto-created)
+│   ├── parking.db                      # SQLite fallback (dev only; set DATABASE_URL for PostgreSQL)
 │   └── confirmed_reservations.txt      # MCP server text log (auto-created on first approval)
 ├── tests/
 │   ├── conftest.py
@@ -144,7 +144,10 @@ task_AI/
 │   ├── test_database.py
 │   ├── test_reservation.py
 │   ├── test_evaluation.py
-│   └── test_chatbot.py
+│   ├── test_chatbot.py
+│   ├── test_mcp_server.py
+│   ├── test_frontend.py
+│   └── test_load.py
 ├── run_frontend.py             # Primary launcher (Chat UI + Admin + MCP — 3 servers)
 ├── .github/workflows/ci.yml    # GitHub Actions CI
 ├── requirements.txt
@@ -310,7 +313,7 @@ ParkBot: ✅ Reservation SP-N5JCKO has been cancelled immediately.
 |---------|--------|
 | `python src/main.py` | Start CLI chatbot (terminal mode) |
 | `python src/main.py --reservations` | Print all reservations table |
-| `python src/main.py --init-db` | Seed the PostGreSQL database only |
+| `python src/main.py --init-db` | Seed the PostgreSQL database only |
 | `python src/main.py --rebuild` | Rebuild the ChromaDB vector store from scratch |
 | `python src/main.py --evaluate` | Retrieval-only RAG evaluation (fast, no LLM) |
 | `python src/main.py --evaluate-full` | Full pipeline evaluation including LLM generation |
@@ -347,11 +350,22 @@ ParkBot: ✅ Reservation SP-N5JCKO has been cancelled immediately.
 ![alt text](screenshots/ss12.png)
 
 ![alt text](screenshots/ss13.png)
+
+**Reservation UI with dashboard**:
+![alt text](screenshots/ss14.png)
 ---
 
 **MCP Server — confirmed reservations text log**
 
 ![confirmed_reservations.txt written by the MCP server after admin approval](screenshots/confirmed_reservations_screenshot.png)
+
+---
+
+**Stage 4 — Load & Frontend Tests**
+
+![Load test results — concurrent chatbot, admin, and MCP server threads all passing](screenshots/ss15.png)
+
+![Frontend test results — 21 Flask HTTP tests passing across all chat UI routes](screenshots/ss16.png)
 
 ---
 
@@ -366,11 +380,11 @@ ParkBot: ✅ Reservation SP-N5JCKO has been cancelled immediately.
 
 ### Stage 2 — Vector + SQL Database Integration
 - **Static** data (general info, location, zones, policies, FAQ) → ChromaDB vector store
-- **Dynamic** data (prices, availability, working hours, reservations) → PostGreSQL via SQLAlchemy
+- **Dynamic** data (prices, availability, working hours, reservations) → PostgreSQL via SQLAlchemy
 - **20 parking spaces per zone** (100 total across zones A–E); all pricing and hours pre-seeded
 - Live prices and availability injected into every LLM prompt alongside RAG context
 - **Date-range availability tracking:** availability counts reflect active approved reservations for any given date range — not just the raw `is_available` flag
-- **Reservation expiry:** Approved reservations are automatically deleted from PostGreSQL when their `end_date` passes. A daemon background thread checks every 60 seconds and immediately frees up the assigned parking bay upon expiry.
+- **Reservation expiry:** Approved reservations are automatically deleted from PostgreSQL when their `end_date` passes. A daemon background thread checks every 60 seconds and immediately frees up the assigned parking bay upon expiry.
 
 ### Stage 3 — Interactive Features
 - **Context-aware intent classification:** the classifier receives the last bot message as context, so short affirmatives like `"yes"` or `"sure"` correctly route to `reservation` when the bot just offered to book a space
@@ -389,7 +403,8 @@ ParkBot: ✅ Reservation SP-N5JCKO has been cancelled immediately.
   - After 24h → ⚠️ 50% refund
 - **Reservation history:** `--reservations` CLI flag shows a full table (approved, rejected, cancelled, pending)
 
-### Stage 4 — Guardrails
+### Stage 4 — Guardrails, Pipeline Integration & Production Hardening
+
 **Input filters:**
 - Prompt injection / jailbreak patterns (`ignore previous instructions`, `act as`, etc.)
 - SQL injection attempts
@@ -402,6 +417,33 @@ ParkBot: ✅ Reservation SP-N5JCKO has been cancelled immediately.
 - Phone numbers redacted unless they are the official SmartPark numbers — **date strings like `2026-06-01` are explicitly excluded** from phone detection to prevent false positives
 - Sensitive internal phrases (admin password, API keys) → entire response blocked with a safe fallback
 - Official contact details always preserved
+
+**Agent 2 pipeline integration:**
+- `human_approval` node now invokes Agent 2's `notify_admin` tool directly before calling `interrupt()` — no duplicate notifications from the frontend
+- Interrupt payload carries the pre-registered `request_code` so both CLI and web paths use the same code
+- Web frontend (`/chat`) extracts `request_code` from the interrupt payload instead of generating a new one
+
+**PostgreSQL production engine:**
+- `get_engine()` configures connection pooling for PostgreSQL: `pool_pre_ping=True`, `pool_recycle=300`, `pool_size=5`, `max_overflow=10`
+- SQLite fallback retains `check_same_thread=False` for dev/test environments
+- `datetime.utcnow()` replaced with `datetime.now(timezone.utc)` throughout to eliminate deprecation warnings
+
+**Realistic parking inventory:**
+- Database seed updated from 20 spaces per zone (100 total) to zone-specific counts:
+
+| Zone | Type | Spaces |
+|------|------|--------|
+| A | Premium | 80 |
+| B | Standard | 200 |
+| C | Economy | 150 |
+| D | Compact | 50 |
+| E | Accessible | 20 |
+| **Total** | | **500** |
+
+**Test coverage expansion:**
+- `test_frontend.py` — 21 Flask HTTP tests for the chat UI (index, reset, chat, status, cancel routes)
+- `test_load.py` — 10 concurrent load tests for chatbot (10 threads), admin decision store (20 threads), and MCP server (15 threads)
+- End-to-end pipeline tests in `test_chatbot.py` for the full approval/rejection flow (skip gracefully in mock LLM env)
 
 ### Stage 5 — Evaluation
 Metrics implemented in `src/evaluation/metrics.py`:
@@ -424,7 +466,7 @@ Once the administrator approves a reservation, the `finalize_reservation` graph 
 
 ### How it works
 
-1. `finalize_reservation` saves the record to PostGreSQL (primary store)
+1. `finalize_reservation` saves the record to PostgreSQL (primary store)
 2. It then calls `call_write_confirmed_reservation()` from `src/mcp_server/client.py`
 3. The client POSTs a `tools/call` JSON-RPC request to `POST http://127.0.0.1:5002/mcp`
 4. The MCP server validates the API key, sanitises the input, and appends one line to `data/confirmed_reservations.txt`
@@ -587,7 +629,7 @@ LLM_PROVIDER=mock
 | `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | HuggingFace embedding model |
 | `VECTOR_STORE_TYPE` | `chroma` | `chroma` (local) or `weaviate` (cloud) |
 | `CHROMA_PERSIST_DIR` | `./data/chroma_db` | ChromaDB storage directory |
-| `PostGreSQL_DB_PATH` | `./data/parking.db` | PostGreSQL database file |
+| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/smartpark` | PostgreSQL connection URL (falls back to SQLite when unset) |
 | `TOP_K_DOCUMENTS` | `4` | Number of documents to retrieve |
 | `CHUNK_SIZE` | `500` | Text chunk size for indexing |
 | `CHUNK_OVERLAP` | `50` | Chunk overlap for indexing |
@@ -650,8 +692,11 @@ pytest tests/ --cov=src --cov-report=term-missing
 | `test_database.py` | 20 |
 | `test_rag.py` | 13 |
 | `test_evaluation.py` | 28 |
-| `test_chatbot.py` | 13 |
-| **Total** | **144** |
+| `test_chatbot.py` | 16 |
+| `test_mcp_server.py` | 63 |
+| `test_frontend.py` | 21 |
+| `test_load.py` | 10 |
+| **Total** | **241** |
 
 ---
 

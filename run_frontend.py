@@ -1,10 +1,11 @@
 """
 SmartPark City Center — Web Chat Launcher
 
-Starts three servers:
+Starts four servers:
   - Port 5000  Customer chat UI            (http://localhost:5000)
   - Port 5001  Admin approval dashboard    (http://localhost:5001/admin)
   - Port 5002  MCP server                  (http://localhost:5002/health)
+  - Port 5003  Client portal (login/dashboard)  (http://localhost:5003)
 
 Usage:
     python run_frontend.py
@@ -42,8 +43,23 @@ from src.reservation_frontend.app import app as chat_app
 
 chat_port = int(os.getenv("CHAT_PORT", "5000"))
 print(f"  Chat UI          →  http://localhost:{chat_port}")
+
+# ── Start the client portal on port 5003 (background daemon thread) ──────────
+from src.client_frontend.app import app as client_app
+
+client_port = int(os.getenv("CLIENT_PORT", "5003"))
+
+_client_thread = threading.Thread(
+    target=lambda: client_app.run(
+        host="0.0.0.0", port=client_port, debug=False, use_reloader=False
+    ),
+    daemon=True,
+    name="client-portal",
+)
+_client_thread.start()
+print(f"  Client Portal    →  http://localhost:{client_port}")
 print()
-print("  Press Ctrl+C to stop both servers.")
+print("  Press Ctrl+C to stop all servers.")
 print()
 
 chat_app.run(host="0.0.0.0", port=chat_port, debug=False, use_reloader=False)

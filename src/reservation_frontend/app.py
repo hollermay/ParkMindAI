@@ -62,14 +62,14 @@ def _last_ai_message(graph_state) -> str:
 
 
 def _run_approval_background(sess: dict, code: str) -> None:
-    """Poll decision_store, resume the graph when admin decides."""
-    from src.admin_agent import decision_store
-    from src.admin_agent.notification import send_notification
-    from src.admin_agent.api_server import get_admin_url
-    from langgraph.types import Command
+    """Poll decision_store and resume the graph when the admin decides.
 
-    rd = sess["graph"].get_state(sess["config"]).values.get("reservation_data", {})
-    send_notification(code, rd, get_admin_url())
+    Admin registration and email notification are handled by the human_approval
+    node (Agent 2 notify_admin tool) *before* the interrupt, so this function
+    only needs to poll and resume.
+    """
+    from src.admin_agent import decision_store
+    from langgraph.types import Command
 
     timeout = cfg.ADMIN_DECISION_TIMEOUT
     elapsed = 0
@@ -175,17 +175,25 @@ def chat():
     graph_state = sess["graph"].get_state(sess["config"])
 
     if any(t.interrupts for t in (graph_state.tasks or ())):
-        from src.admin_agent import decision_store
-        from src.reservation.handler import mask_card, mask_email
-
-        rd = graph_state.values.get("reservation_data") or {}
-        code = decision_store.generate_request_code()
-        rd_for_store = {
-            **rd,
-            "card_masked": mask_card(rd.get("card_number", "")),
-            "email_masked": mask_email(rd.get("email", "")),
-        }
-        decision_store.add_pending(code, rd_for_store)
+        # Extract the request_code registered by the human_approval node (Agent 2).
+        # Fallback to generating a new code only if the node somehow didn't set one.
+        code = ""
+        for _task in (graph_state.tasks or ()):
+            for _intr in (_task.interrupts or ()):
+                if isinstance(_intr.value, dict):
+                    code = _intr.value.get("request_code", "")
+                break
+            break
+        if not code:
+            from src.admin_agent import decision_store
+            from src.reservation.handler import mask_card, mask_email
+            _rd = graph_state.values.get("reservation_data") or {}
+            code = decision_store.generate_request_code()
+            decision_store.add_pending(code, {
+                **_rd,
+                "card_masked": mask_card(_rd.get("card_number", "")),
+                "email_masked": mask_email(_rd.get("email", "")),
+            })
         sess["pending_code"] = code
 
         t = threading.Thread(

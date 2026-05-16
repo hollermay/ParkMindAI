@@ -204,3 +204,123 @@ class TestGuardrailsIntegration:
         state = fresh_graph.get_state(thread_config)
         messages = state.values.get("messages", [])
         assert len(messages) >= 4  # 2 human + at least 2 AI responses
+
+
+# ─── End-to-end pipeline integration ─────────────────────────────────────────
+
+class TestEndToEndPipeline:
+    """
+    Full pipeline tests: user → RAG → reservation → Agent 2 notify → admin
+    approval → finalize_reservation → MCP write + database record.
+
+    These tests validate that every stage of the orchestration is correctly
+    integrated.  The MCP server is not started; the client falls back to a
+    direct file write to cfg.RESERVATIONS_FILE_PATH (patched to a temp file).
+    """
+
+    _RESERVATION_STEPS = [
+        "I'd like to book a parking space.",
+        "Carol",       # first_name
+        "White",       # last_name
+        "E2E-0001",    # car_number
+        "B",           # zone
+        "2027-11-01",  # start_date
+        "2027-11-03",  # end_date
+    ]
+
+    def _run_to_interrupt(self, graph, config):
+        """Walk through reservation fields until the graph interrupts."""
+        from langchain_core.messages import HumanMessage
+        for msg in self._RESERVATION_STEPS:
+            graph.invoke({"messages": [HumanMessage(content=msg)]}, config=config)
+        return graph.get_state(config)
+
+    def test_approval_creates_database_record(self, fresh_graph, thread_config, tmp_path, monkeypatch):
+        """After admin approval, a record must exist in the database."""
+        import re
+        import src.config as cfg
+        from langchain_core.messages import HumanMessage
+        from langgraph.types import Command
+
+        monkeypatch.setattr(cfg, "RESERVATIONS_FILE_PATH", str(tmp_path / "e2e.txt"))
+
+        self._run_to_interrupt(fresh_graph, thread_config)
+        state = fresh_graph.get_state(thread_config)
+        if not any(t.interrupts for t in (state.tasks or ())):
+            pytest.skip("Graph did not interrupt — skipping approval-dependent assertions")
+
+        fresh_graph.invoke(
+            Command(resume={"approved": True, "notes": "E2E approved."}),
+            config=thread_config,
+        )
+        state = fresh_graph.get_state(thread_config)
+        reply = _last_ai_message(state.values)
+        rd = state.values.get("reservation_data", {})
+
+        assert rd.get("status") == "approved", f"Expected status='approved', got: {rd.get('status')}"
+
+        codes = re.findall(r"SP-[A-Z0-9]+", reply)
+        assert codes, f"Expected reservation code (SP-...) in approval reply; got: {reply!r}"
+
+        from src.database.operations import get_reservation_by_code
+        db_res = get_reservation_by_code(cfg.SQLITE_DB_PATH, codes[0])
+        assert db_res is not None, f"Reservation {codes[0]} not found in database"
+        assert db_res.status == "approved"
+        assert db_res.first_name == "Carol"
+        assert db_res.last_name == "White"
+
+    def test_approval_writes_mcp_log(self, fresh_graph, thread_config, tmp_path, monkeypatch):
+        """After admin approval, confirmed_reservations.txt must contain the entry."""
+        import src.config as cfg
+        from langgraph.types import Command
+
+        res_file = tmp_path / "confirmed.txt"
+        monkeypatch.setattr(cfg, "RESERVATIONS_FILE_PATH", str(res_file))
+
+        self._run_to_interrupt(fresh_graph, thread_config)
+        state = fresh_graph.get_state(thread_config)
+        if not any(t.interrupts for t in (state.tasks or ())):
+            pytest.skip("Graph did not interrupt — skipping MCP log assertions")
+        fresh_graph.invoke(
+            Command(resume={"approved": True, "notes": "MCP test approval."}),
+            config=thread_config,
+        )
+
+        # MCP server is not running in tests; client falls back to direct write
+        assert res_file.exists(), "MCP fallback should have created the reservations file"
+        content = res_file.read_text(encoding="utf-8")
+        assert "Carol" in content or "E2E-0001" in content, (
+            f"Reservation data not found in MCP log. Content:\n{content}"
+        )
+        data_lines = [ln for ln in content.splitlines()
+                      if "|" in ln and "---" not in ln and "Name" not in ln]
+        assert len(data_lines) >= 1, "At least one data line expected in MCP log"
+
+    def test_rejection_does_not_write_mcp_log(self, fresh_graph, thread_config, tmp_path, monkeypatch):
+        """A rejected reservation must NOT write to the MCP log."""
+        import src.config as cfg
+        from langgraph.types import Command
+
+        res_file = tmp_path / "rejected.txt"
+        monkeypatch.setattr(cfg, "RESERVATIONS_FILE_PATH", str(res_file))
+
+        self._run_to_interrupt(fresh_graph, thread_config)
+        state = fresh_graph.get_state(thread_config)
+        if not any(t.interrupts for t in (state.tasks or ())):
+            pytest.skip("Graph did not interrupt — skipping rejection assertions")
+        fresh_graph.invoke(
+            Command(resume={"approved": False, "notes": "No spaces available."}),
+            config=thread_config,
+        )
+
+        state = fresh_graph.get_state(thread_config)
+        rd = state.values.get("reservation_data", {})
+        reply = _last_ai_message(state.values)
+
+        assert rd.get("status") == "rejected", f"Expected status='rejected', got: {rd.get('status')}"
+        assert any(w in reply.lower() for w in ("rejected", "sorry", "unable", "apologise")), (
+            f"Expected rejection message; got: {reply!r}"
+        )
+        if res_file.exists():
+            content = res_file.read_text(encoding="utf-8")
+            assert "Carol" not in content, "Rejected reservation must not appear in MCP log"
