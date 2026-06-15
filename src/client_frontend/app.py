@@ -31,7 +31,15 @@ import uuid
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template_string,
+    request,
+    session,
+    url_for,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -76,13 +84,12 @@ def _last_ai_message(graph_state) -> str:
 
 def _run_approval_background(chat_sess: dict, code: str) -> None:
     """Poll decision_store, resume graph when admin decides."""
-    from src.admin_agent import decision_store
-    from src.admin_agent.notification import send_notification
-    from src.admin_agent.api_server import get_admin_url
     from langgraph.types import Command
 
-    rd = chat_sess["graph"].get_state(chat_sess["config"]).values.get("reservation_data", {})
-    send_notification(code, rd, get_admin_url())
+    from src.admin_agent import decision_store
+
+    # Notification was already sent by notify_admin inside the human_approval node.
+    # Do NOT call send_notification again — that would create a duplicate admin alert.
 
     timeout = cfg.ADMIN_DECISION_TIMEOUT
     elapsed = 0
@@ -297,13 +304,9 @@ _AUTH_PAGE = """<!DOCTYPE html>
       <p class="subtitle">Start managing your parking reservations today</p>
       <form method="post" action="/register">
         <div class="form-row">
-          <div class="form-group">
-            <label>First Name</label>
-            <input class="form-input" name="first_name" type="text" placeholder="John" required autocomplete="given-name">
-          </div>
-          <div class="form-group">
-            <label>Last Name</label>
-            <input class="form-input" name="last_name" type="text" placeholder="Doe" required autocomplete="family-name">
+                  <div class="form-group">
+            <label>Full Name</label>
+            <input class="form-input" name="full_name" type="text" placeholder="John Doe" required autocomplete="name">
           </div>
         </div>
         <div class="form-group">
@@ -990,7 +993,7 @@ def login():
         if user:
             session["user_id"] = user.id
             session["user_email"] = user.email
-            session["user_name"] = f"{user.first_name} {user.last_name}"
+            session["user_name"] = user.full_name
             return redirect(url_for("dashboard"))
         error = "Invalid email or password. Please try again."
     return render_template_string(_AUTH_PAGE, active_tab="login", error=error, success=None, prefill_email=prefill_email)
@@ -1003,8 +1006,7 @@ def register():
     error = None
     success = None
     if request.method == "POST":
-        first_name = (request.form.get("first_name") or "").strip()
-        last_name = (request.form.get("last_name") or "").strip()
+        full_name = (request.form.get("full_name") or "").strip()
         email = (request.form.get("email") or "").strip()
         password = request.form.get("password") or ""
         password2 = request.form.get("password2") or ""
@@ -1016,7 +1018,7 @@ def register():
             from src.database.operations import register_user
             try:
                 init_db(cfg.SQLITE_DB_PATH)
-                ok, msg = register_user(cfg.SQLITE_DB_PATH, first_name, last_name, email, password)
+                ok, msg = register_user(cfg.SQLITE_DB_PATH, full_name, email, password)
             except Exception as exc:
                 logger.error("Register DB error: %s", exc)
                 ok, msg = False, "A server error occurred. Please try again."
@@ -1064,7 +1066,11 @@ def dashboard():
 @app.route("/cancel_booking", methods=["POST"])
 @login_required
 def cancel_booking():
-    from src.database.operations import cancel_reservation, get_cancellation_policy, get_reservation_by_code
+    from src.database.operations import (
+        cancel_reservation,
+        get_cancellation_policy,
+        get_reservation_by_code,
+    )
     data = request.get_json(force=True, silent=True) or {}
     code = (data.get("code") or "").strip().upper()
     reason = (data.get("reason") or "").strip()
@@ -1142,8 +1148,39 @@ def chat():
         from src.admin_agent import decision_store
         from src.reservation.handler import mask_card, mask_email
 
-        rd = graph_state.values.get("reservation_data") or {}
-        code = decision_store.generate_request_code()
+        rd = dict(graph_state.values.get("reservation_data") or {})
+
+        # Automatically populate email from the logged-in user's account
+        user_email = session.get("user_email", "")
+        if not rd.get("email") and user_email:
+            rd["email"] = user_email
+            # Persist the email back into the graph state so finalize_reservation
+            # can save it to the database when the reservation is approved.
+            chat_sess["graph"].update_state(
+                chat_sess["config"],
+                {"reservation_data": rd},
+            )
+
+        # Reuse the request code already registered by the human_approval node
+        # (it is embedded in the interrupt payload).  Generating a second code
+        # would create a duplicate entry on the admin dashboard.
+        code = None
+        for _task in (graph_state.tasks or ()):
+            for _intr in (_task.interrupts or ()):
+                _val = getattr(_intr, "value", None)
+                if isinstance(_val, dict):
+                    code = _val.get("request_code")
+                if code:
+                    break
+            if code:
+                break
+
+        if not code:
+            # Fallback: human_approval failed to register — create a new entry.
+            code = decision_store.generate_request_code()
+
+        # Update the pending entry with full data (adds email + masked card/email
+        # that the basic notify_admin call did not include).
         rd_for_store = {
             **rd,
             "card_masked": mask_card(rd.get("card_number", "")),

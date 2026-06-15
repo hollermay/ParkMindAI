@@ -13,9 +13,7 @@ from src.reservation.handler import (
     get_next_field,
     is_complete,
     validate_date_range,
-    RESERVATION_FIELD_ORDER,
 )
-
 
 # ─── Field extraction ─────────────────────────────────────────────────────────
 
@@ -28,14 +26,14 @@ class TestNameExtraction:
         ("Anne-Marie", "Anne-Marie"),
     ])
     def test_valid_names(self, raw, expected):
-        for field in ("first_name", "last_name"):
+        for field in ("full_name",):
             value, error = extract_field_value(field, raw)
             assert error is None, f"Unexpected error for '{raw}': {error}"
             assert value == expected
 
     @pytest.mark.parametrize("raw", ["12345", "!@#$", ""])
     def test_invalid_names(self, raw):
-        value, error = extract_field_value("first_name", raw)
+        value, error = extract_field_value("full_name", raw)
         assert value is None or error is not None
 
 
@@ -95,16 +93,15 @@ class TestDateExtraction:
 
 class TestFieldOrdering:
     def test_next_field_empty_data(self):
-        assert get_next_field({}) == "first_name"
+        assert get_next_field({}) == "full_name"
 
     def test_next_field_partial(self):
-        rd = {"first_name": "Alice", "last_name": "Smith"}
+        rd = {"full_name": "Alice Smith"}
         assert get_next_field(rd) == "car_number"
 
     def test_next_field_all_filled(self):
         rd = {
-            "first_name": "Alice",
-            "last_name": "Smith",
+            "full_name": "Alice Smith",
             "car_number": "ABC-1234",
             "zone": "B",
             "start_date": "2027-07-01",
@@ -113,13 +110,12 @@ class TestFieldOrdering:
         assert get_next_field(rd) is None
 
     def test_is_complete_false_partial(self):
-        rd = {"first_name": "Alice"}
+        rd = {"full_name": "Alice"}
         assert not is_complete(rd)
 
     def test_is_complete_true_full(self):
         rd = {
-            "first_name": "Alice",
-            "last_name": "Smith",
+            "full_name": "Alice Smith",
             "car_number": "ABC-1234",
             "zone": "A",
             "start_date": "2027-07-01",

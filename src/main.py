@@ -8,14 +8,12 @@ Usage:
     python src/main.py --rebuild    # Rebuild the vector store from scratch
 """
 import argparse
-import json
 import logging
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -23,7 +21,6 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.rule import Rule
 from rich.table import Table
-from rich.text import Text
 
 # ─── Project bootstrap ────────────────────────────────────────────────────────
 # Ensure the repo root is on the path when running as `python src/main.py`
@@ -97,10 +94,9 @@ def _admin_approval_prompt(state_values: dict, request_code: str = "") -> tuple[
     double-registering.  If no code is supplied (e.g. fallback path), it
     registers the request itself.
     """
-    import time
     from src.admin_agent import decision_store
-    from src.admin_agent.notification import send_notification
     from src.admin_agent.api_server import get_admin_url
+    from src.admin_agent.notification import send_notification
     from src.reservation.handler import mask_card, mask_email
 
     rd = state_values.get("reservation_data") or {}
@@ -125,7 +121,7 @@ def _admin_approval_prompt(state_values: dict, request_code: str = "") -> tuple[
     console.print(Rule("[bold yellow]⚠  ADMIN APPROVAL REQUIRED  ⚠[/]"))
     console.print(Panel(
         f"[bold]Request Code:[/] [cyan]{code}[/]\n\n"
-        f"[bold]Name:[/]    {rd.get('first_name', '')} {rd.get('last_name', '')}\n"
+        f"[bold]Name:[/]    {rd.get('full_name', '')}\n"
         f"[bold]Email:[/]   {mask_email(rd.get('email', ''))}\n"
         f"[bold]Vehicle:[/] {rd.get('car_number', '')}\n"
         f"[bold]Zone:[/]    Zone {rd.get('zone', '')}\n"
@@ -182,6 +178,7 @@ def _admin_approval_prompt(state_values: dict, request_code: str = "") -> tuple[
 def run_chat() -> None:
     """Start an interactive chat session."""
     from langchain_core.messages import HumanMessage
+
     from src.chatbot.graph import get_graph
 
     # Initialise DB and vector store on first run
@@ -344,7 +341,7 @@ def show_reservations() -> None:
         colour = _status_colour(r.status)
         table.add_row(
             r.reservation_code,
-            f"{r.first_name} {r.last_name}",
+            r.full_name,
             r.car_number,
             r.zone,
             str(r.start_datetime.date()) if r.start_datetime else "",
@@ -362,7 +359,11 @@ def show_reservations() -> None:
 
 def run_evaluation(full_pipeline: bool = False) -> None:
     """Run the RAG evaluation suite and print the report."""
-    from src.evaluation.metrics import evaluate_retrieval, evaluate_full_pipeline, save_report
+    from src.evaluation.metrics import (
+        evaluate_full_pipeline,
+        evaluate_retrieval,
+        save_report,
+    )
 
     console.print(Panel("[bold]Running RAG Evaluation Suite...[/]", border_style="blue"))
     try:

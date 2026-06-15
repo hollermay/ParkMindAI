@@ -6,7 +6,6 @@ pricing retrieval, reservation creation/rejection, and
 working hours.
 """
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +30,7 @@ def fresh_db(tmp_path):
 class TestDBInitialisation:
     def test_init_creates_tables(self, fresh_db):
         from sqlalchemy import inspect as sa_inspect
+
         from src.database.models import get_engine
         engine = get_engine(fresh_db)
         inspector = sa_inspect(engine)
@@ -42,6 +42,7 @@ class TestDBInitialisation:
 
     def test_seeds_parking_spaces(self, fresh_db):
         from sqlalchemy.orm import Session
+
         from src.database.models import ParkingSpace, get_engine
         with Session(get_engine(fresh_db)) as session:
             count = session.query(ParkingSpace).count()
@@ -49,6 +50,7 @@ class TestDBInitialisation:
 
     def test_seeds_pricing_rows(self, fresh_db):
         from sqlalchemy.orm import Session
+
         from src.database.models import Pricing, get_engine
         with Session(get_engine(fresh_db)) as session:
             count = session.query(Pricing).count()
@@ -56,6 +58,7 @@ class TestDBInitialisation:
 
     def test_seeds_working_hours(self, fresh_db):
         from sqlalchemy.orm import Session
+
         from src.database.models import WorkingHours, get_engine
         with Session(get_engine(fresh_db)) as session:
             count = session.query(WorkingHours).count()
@@ -64,6 +67,7 @@ class TestDBInitialisation:
     def test_init_idempotent(self, fresh_db):
         """Calling init_db twice should not duplicate seed data."""
         from sqlalchemy.orm import Session
+
         from src.database.models import ParkingSpace, get_engine, init_db
         init_db(fresh_db)
         with Session(get_engine(fresh_db)) as session:
@@ -94,7 +98,11 @@ class TestAvailability:
         assert space is None
 
     def test_mark_space_unavailable(self, fresh_db):
-        from src.database.operations import find_available_space, mark_space_unavailable, get_availability_summary
+        from src.database.operations import (
+            find_available_space,
+            get_availability_summary,
+            mark_space_unavailable,
+        )
         space = find_available_space(fresh_db, "A")
         assert space is not None
         mark_space_unavailable(fresh_db, space.id)
@@ -102,7 +110,12 @@ class TestAvailability:
         assert summary["A"]["available"] == 79  # one less
 
     def test_mark_space_available_again(self, fresh_db):
-        from src.database.operations import find_available_space, mark_space_unavailable, mark_space_available, get_availability_summary
+        from src.database.operations import (
+            find_available_space,
+            get_availability_summary,
+            mark_space_available,
+            mark_space_unavailable,
+        )
         space = find_available_space(fresh_db, "B")
         mark_space_unavailable(fresh_db, space.id)
         mark_space_available(fresh_db, space.id)
@@ -154,8 +167,7 @@ class TestReservations:
         from src.database.operations import create_reservation
         r = create_reservation(
             db_path=fresh_db,
-            first_name="Alice",
-            last_name="Smith",
+            full_name="Alice Smith",
             car_number="ABC-1234",
             zone="B",
             start_datetime=datetime(2026, 7, 1, 10, 0),
@@ -163,15 +175,14 @@ class TestReservations:
         )
         assert r.reservation_code.startswith("SP-")
         assert r.status == "approved"
-        assert r.first_name == "Alice"
+        assert r.full_name == "Alice Smith"
 
     def test_create_reservation_marks_space_unavailable(self, fresh_db):
         from src.database.operations import create_reservation, get_availability_summary
         before = get_availability_summary(fresh_db)["C"]["available"]
         create_reservation(
             db_path=fresh_db,
-            first_name="Bob",
-            last_name="Jones",
+            full_name="Bob Jones",
             car_number="XY-5678",
             zone="C",
             start_datetime=datetime(2026, 8, 1),
@@ -184,8 +195,7 @@ class TestReservations:
         from src.database.operations import create_reservation, get_reservation_by_code
         r = create_reservation(
             db_path=fresh_db,
-            first_name="Carol",
-            last_name="White",
+            full_name="Carol White",
             car_number="DEF-9999",
             zone="A",
             start_datetime=datetime(2026, 9, 1),
@@ -193,7 +203,7 @@ class TestReservations:
         )
         fetched = get_reservation_by_code(fresh_db, r.reservation_code)
         assert fetched is not None
-        assert fetched.first_name == "Carol"
+        assert fetched.full_name == "Carol White"
 
     def test_get_reservation_nonexistent_code(self, fresh_db):
         from src.database.operations import get_reservation_by_code
@@ -202,13 +212,13 @@ class TestReservations:
 
     def test_reject_reservation_record(self, fresh_db):
         from sqlalchemy.orm import Session
+
         from src.database.models import Reservation, get_engine
         from src.database.operations import reject_reservation_record
         reject_reservation_record(
             db_path=fresh_db,
             reservation_data={
-                "first_name": "Dave",
-                "last_name": "Brown",
+                "full_name": "Dave Brown",
                 "car_number": "GHI-0000",
                 "zone": "B",
                 "start_datetime": datetime(2026, 10, 1),
@@ -219,4 +229,4 @@ class TestReservations:
         with Session(get_engine(fresh_db)) as session:
             r = session.query(Reservation).filter_by(status="rejected").first()
         assert r is not None
-        assert r.first_name == "Dave"
+        assert r.full_name == "Dave Brown"

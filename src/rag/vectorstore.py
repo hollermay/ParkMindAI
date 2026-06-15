@@ -11,9 +11,9 @@ import logging
 from pathlib import Path
 from typing import List
 
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
 
 import src.config as cfg
 from src.rag.embeddings import get_embeddings
@@ -214,7 +214,7 @@ def _get_weaviate(documents: List[Document] | None, force_rebuild: bool = False)
         logger.info("Dropped Weaviate collection '%s' for rebuild.", class_name)
 
     if not schema_exists:
-        from weaviate.classes.config import Configure, Property, DataType
+        from weaviate.classes.config import Configure, DataType, Property
         client.collections.create(
             name=class_name,
             vectorizer_config=Configure.Vectorizer.none(),   # we supply our own vectors

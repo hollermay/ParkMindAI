@@ -68,8 +68,9 @@ def _run_approval_background(sess: dict, code: str) -> None:
     node (Agent 2 notify_admin tool) *before* the interrupt, so this function
     only needs to poll and resume.
     """
-    from src.admin_agent import decision_store
     from langgraph.types import Command
+
+    from src.admin_agent import decision_store
 
     timeout = cfg.ADMIN_DECISION_TIMEOUT
     elapsed = 0
@@ -230,9 +231,9 @@ def chat():
 def cancel():
     """Immediately cancel an approved reservation by code."""
     from src.database.operations import (
-        get_reservation_by_code,
-        get_cancellation_policy,
         cancel_reservation,
+        get_cancellation_policy,
+        get_reservation_by_code,
     )
 
     data = request.get_json(force=True, silent=True) or {}

@@ -4,9 +4,10 @@ Tests for the RAG vector store and retriever.
 Covers: document loading, indexing, similarity search, metadata,
 and retrieval result formatting.
 """
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

@@ -36,6 +36,7 @@ def fresh_graph(tmp_path, monkeypatch):
     init_db(str(tmp_path / "test.db"))
 
     from langgraph.checkpoint.memory import MemorySaver
+
     from src.chatbot.graph import build_graph
     return build_graph(checkpointer=MemorySaver())
 
@@ -136,17 +137,16 @@ class TestReservationFlow:
 
     def test_reservation_data_accumulates(self, fresh_graph, thread_config):
         _invoke(fresh_graph, "I want to reserve a space.", thread_config)
-        _invoke(fresh_graph, "Alice", thread_config)  # first_name
+        _invoke(fresh_graph, "Alice", thread_config)  # full_name
         state = fresh_graph.get_state(thread_config)
         rd = state.values.get("reservation_data", {})
-        assert rd.get("first_name") == "Alice"
+        assert rd.get("full_name") == "Alice"
 
     def test_full_reservation_reaches_pending_approval(self, fresh_graph, thread_config):
         """Walk through all fields; graph should interrupt before human_approval."""
         steps = [
             "I'd like to book a parking space.",
-            "Alice",          # first_name
-            "Smith",          # last_name
+            "Alice Smith",    # full_name
             "ABC-1234",       # car_number
             "B",              # zone
             "2027-08-01",     # start_date
@@ -168,8 +168,7 @@ class TestReservationFlow:
         from langchain_core.messages import HumanMessage
         steps = [
             "Book a parking space",
-            "Bob",          # first_name
-            "Jones",        # last_name
+            "Bob Jones",    # full_name
             "XY-5678",      # car_number
             "A",            # zone
             "2027-09-01",   # start_date
@@ -220,12 +219,11 @@ class TestEndToEndPipeline:
 
     _RESERVATION_STEPS = [
         "I'd like to book a parking space.",
-        "Carol",       # first_name
-        "White",       # last_name
-        "E2E-0001",    # car_number
-        "B",           # zone
-        "2027-11-01",  # start_date
-        "2027-11-03",  # end_date
+        "Carol White",  # full_name
+        "E2E-0001",     # car_number
+        "B",            # zone
+        "2027-11-01",   # start_date
+        "2027-11-03",   # end_date
     ]
 
     def _run_to_interrupt(self, graph, config):
@@ -238,9 +236,10 @@ class TestEndToEndPipeline:
     def test_approval_creates_database_record(self, fresh_graph, thread_config, tmp_path, monkeypatch):
         """After admin approval, a record must exist in the database."""
         import re
-        import src.config as cfg
-        from langchain_core.messages import HumanMessage
+
         from langgraph.types import Command
+
+        import src.config as cfg
 
         monkeypatch.setattr(cfg, "RESERVATIONS_FILE_PATH", str(tmp_path / "e2e.txt"))
 
@@ -266,13 +265,13 @@ class TestEndToEndPipeline:
         db_res = get_reservation_by_code(cfg.SQLITE_DB_PATH, codes[0])
         assert db_res is not None, f"Reservation {codes[0]} not found in database"
         assert db_res.status == "approved"
-        assert db_res.first_name == "Carol"
-        assert db_res.last_name == "White"
+        assert db_res.full_name == "Carol White"
 
     def test_approval_writes_mcp_log(self, fresh_graph, thread_config, tmp_path, monkeypatch):
         """After admin approval, confirmed_reservations.txt must contain the entry."""
-        import src.config as cfg
         from langgraph.types import Command
+
+        import src.config as cfg
 
         res_file = tmp_path / "confirmed.txt"
         monkeypatch.setattr(cfg, "RESERVATIONS_FILE_PATH", str(res_file))
@@ -298,8 +297,9 @@ class TestEndToEndPipeline:
 
     def test_rejection_does_not_write_mcp_log(self, fresh_graph, thread_config, tmp_path, monkeypatch):
         """A rejected reservation must NOT write to the MCP log."""
-        import src.config as cfg
         from langgraph.types import Command
+
+        import src.config as cfg
 
         res_file = tmp_path / "rejected.txt"
         monkeypatch.setattr(cfg, "RESERVATIONS_FILE_PATH", str(res_file))

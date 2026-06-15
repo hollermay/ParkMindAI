@@ -29,7 +29,7 @@ def notify_admin(reservation_json: str) -> str:
 
     Args:
         reservation_json: JSON string containing reservation fields:
-            first_name, last_name, car_number, zone, start_date, end_date
+            full_name, car_number, zone, start_date, end_date
 
     Returns:
         A string with the unique request code and the admin dashboard URL.

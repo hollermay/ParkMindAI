@@ -10,7 +10,7 @@ Stage 4 requirement — prevents:
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,6 @@ _SENSITIVE_PHRASES: List[re.Pattern] = [
     re.compile(r"admin\s+password", re.I),
     re.compile(r"internal\s+(api|secret|key|token)", re.I),
     re.compile(r"database\s+(password|credentials?)", re.I),
-    re.compile(r"OPENAI_API_KEY", re.I),
     re.compile(r"connection\s+string", re.I),
 ]
 
@@ -139,7 +138,6 @@ def filter_output(ai_response: str) -> OutputFilterResult:
 
     # Redact phone numbers that are not the official numbers.
     # First, temporarily mask date-like strings so they don't trigger the phone regex.
-    official_phones = {"+1 (555) 123-4567", "+1 (555) 911-7275", "+1 (555) 9117275"}
     date_placeholders = {}
     masked_output = output
     for i, m in enumerate(_DATE_LIKE_RE.finditer(output)):

@@ -1,5 +1,5 @@
 """
-Flask REST API — Admin Decision Server.
+FastAPI REST API — Admin Decision Server.
 
 Provides the human administrator with a web interface and JSON API to:
   - View all pending reservation approval requests
@@ -9,15 +9,17 @@ Provides the human administrator with a web interface and JSON API to:
 Endpoints:
   GET  /admin                                   HTML dashboard (auto-refreshes)
   GET  /admin/pending                           JSON list of pending requests
-  GET  /admin/reservation/<code>                JSON details for one request
+  GET  /admin/reservation/{code}                JSON details for one request
   POST /admin/decide           {code, approved, notes}   JSON response
   POST /admin/decide           form fields: code, decision, notes
   GET  /admin/decide?code=X&decision=approve    one-click from email links
 
-Runs as a daemon thread — shuts down automatically when the main process exits.
+Runs as a daemon thread (uvicorn) — shuts down automatically when the main
+process exits.  Same lifecycle pattern as the MCP server.
 """
 import logging
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +91,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       <p class="code">Request Code: {{ code }} <span class="source-tag">chatbot</span></p>
       <table>
         <tr><th>Field</th><th>Value</th></tr>
-        <tr><td>Name</td><td>{{ rd.first_name }} {{ rd.last_name }}</td></tr>
+        <tr><td>Name</td><td>{{ rd.full_name }}</td></tr>
         <tr><td>Email</td><td>{{ rd.email or '—' }}</td></tr>
         <tr><td>Vehicle Plate</td><td>{{ rd.car_number }}</td></tr>
         <tr><td>Zone</td><td>Zone {{ rd.zone }}</td></tr>
@@ -205,10 +207,23 @@ _RESULT_HTML = """<!DOCTYPE html>
 </html>"""
 
 
-# ─── Flask app factory ────────────────────────────────────────────────────────
+# ─── Pydantic model for JSON decide requests ─────────────────────────────────
+
+from pydantic import BaseModel
+
+
+class DecideRequest(BaseModel):
+    code: str
+    approved: bool
+    notes: str = ""
+
+
+# ─── FastAPI app factory ──────────────────────────────────────────────────────
 
 def create_app():
-    from flask import Flask, jsonify, render_template_string, request
+    from fastapi import FastAPI, Form, HTTPException, Query, Request
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from jinja2 import Template
 
     from src.admin_agent.decision_store import (
         get_reservation,
@@ -216,24 +231,29 @@ def create_app():
         submit_decision,
     )
 
-    app = Flask(__name__)
+    app = FastAPI(
+        title="SmartPark Admin API",
+        # Disable docs UI to reduce attack surface (mirrors MCP server pattern)
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
 
-    # Silence Flask's request logger
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    # ── GET /admin — HTML dashboard ───────────────────────────────────────────
 
-    @app.route("/admin")
-    def dashboard():
+    @app.get("/admin", response_class=HTMLResponse)
+    async def dashboard():
         pending = list_pending()
+        import src.config as cfg
         from src.database.models import init_db
         from src.database.operations import get_all_reservations_full
-        import src.config as cfg
         try:
             init_db(cfg.SQLITE_DB_PATH)
             all_res = get_all_reservations_full(cfg.SQLITE_DB_PATH)
             history = [
                 {
                     "code": r.reservation_code,
-                    "name": f"{r.first_name} {r.last_name}",
+                    "name": r.full_name,
                     "vehicle": r.car_number,
                     "zone": r.zone,
                     "start": str(r.start_datetime.date()) if r.start_datetime else "",
@@ -242,19 +262,18 @@ def create_app():
                     "notes": r.admin_notes or "",
                 }
                 for r in all_res
-                if r.status != "pending"  # pending shown separately above
+                if r.status != "pending"
             ]
         except Exception:
             history = []
 
-        # DB-pending reservations from web form
         try:
             from src.database.operations import get_db_pending_reservations
             raw_pending = get_db_pending_reservations(cfg.SQLITE_DB_PATH)
             db_pending = [
                 {
                     "code": r.reservation_code,
-                    "name": f"{r.first_name} {r.last_name}",
+                    "name": r.full_name,
                     "email": r.email or "",
                     "vehicle": r.car_number,
                     "zone": r.zone,
@@ -268,103 +287,142 @@ def create_app():
         except Exception:
             db_pending = []
 
-        return render_template_string(_DASHBOARD_HTML, pending=pending, history=history, db_pending=db_pending)
+        html = Template(_DASHBOARD_HTML).render(
+            pending=pending, history=history, db_pending=db_pending
+        )
+        return HTMLResponse(content=html)
 
-    @app.route("/admin/pending", methods=["GET"])
-    def api_pending():
-        return jsonify(list_pending())
+    # ── GET /admin/pending — JSON list ────────────────────────────────────────
 
-    @app.route("/admin/reservation/<code>", methods=["GET"])
-    def api_reservation(code: str):
+    @app.get("/admin/pending")
+    async def api_pending():
+        return list_pending()
+
+    # ── GET /admin/reservation/{code} — JSON detail ───────────────────────────
+
+    @app.get("/admin/reservation/{code}")
+    async def api_reservation(code: str):
         rd = get_reservation(code)
         if rd is None:
-            return jsonify({"error": "Not found"}), 404
-        return jsonify(rd)
+            raise HTTPException(status_code=404, detail="Not found")
+        return rd
 
-    @app.route("/admin/decide", methods=["POST"])
-    def api_decide_post():
-        """Handle JSON body (API) and HTML form submissions."""
-        if request.is_json:
-            data = request.get_json(force=True) or {}
+    # ── POST /admin/decide — JSON body OR form submission ─────────────────────
+
+    @app.post("/admin/decide")
+    async def api_decide_post(request: Request):
+        """
+        Accepts two content types on the same endpoint:
+          • application/json  → used by the admin agent / REST clients
+          • application/x-www-form-urlencoded → used by the dashboard HTML forms
+        """
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            data = await request.json()
             code = data.get("code", "")
             approved = bool(data.get("approved", False))
             notes = data.get("notes", "")
+            is_json = True
         else:
-            code = request.form.get("code", "")
-            decision = request.form.get("decision", "reject")
+            form = await request.form()
+            code = str(form.get("code", ""))
+            decision = str(form.get("decision", "reject"))
             approved = (decision == "approve")
-            notes = request.form.get("notes", "")
+            notes = str(form.get("notes", ""))
+            is_json = False
 
         if not submit_decision(code, approved, notes):
-            if request.is_json:
-                return jsonify({"error": "Code not found or already processed"}), 404
-            return _RESULT_HTML.format(
-                color="#e53e3e", icon="❌", message="Error",
-                code=code, action="not found — it may have already been processed",
-            ), 404
+            if is_json:
+                raise HTTPException(
+                    status_code=404, detail="Code not found or already processed"
+                )
+            return HTMLResponse(
+                content=_RESULT_HTML.format(
+                    color="#e53e3e", icon="❌", message="Error",
+                    code=code, action="not found — it may have already been processed",
+                ),
+                status_code=404,
+            )
 
         action = "approved" if approved else "rejected"
         logger.info("[AdminAPI] Reservation %s %s (notes: %s)", code, action, notes)
-        if request.is_json:
-            return jsonify({"status": "ok", "code": code, "approved": approved})
-        return _RESULT_HTML.format(
-            color="#38a169" if approved else "#e53e3e",
-            icon="✅" if approved else "❌",
-            message="Approved!" if approved else "Rejected.",
-            code=code, action=action,
+        if is_json:
+            return JSONResponse({"status": "ok", "code": code, "approved": approved})
+        return HTMLResponse(
+            content=_RESULT_HTML.format(
+                color="#38a169" if approved else "#e53e3e",
+                icon="✅" if approved else "❌",
+                message="Approved!" if approved else "Rejected.",
+                code=code, action=action,
+            )
         )
 
-    @app.route("/admin/decide", methods=["GET"])
-    def api_decide_get():
-        """One-click approve/reject from email links."""
-        code = request.args.get("code", "")
-        decision = request.args.get("decision", "reject")
+    # ── GET /admin/decide — one-click from email links ────────────────────────
+
+    @app.get("/admin/decide", response_class=HTMLResponse)
+    async def api_decide_get(
+        code: str = Query(default=""),
+        decision: str = Query(default="reject"),
+        notes: str = Query(default=""),
+    ):
+        """One-click approve/reject links embedded in notification emails."""
         approved = (decision == "approve")
-        notes = request.args.get("notes", "")
-
         if not submit_decision(code, approved, notes):
-            return _RESULT_HTML.format(
-                color="#e53e3e", icon="❌", message="Error",
-                code=code, action="not found or already processed",
-            ), 404
-
+            return HTMLResponse(
+                content=_RESULT_HTML.format(
+                    color="#e53e3e", icon="❌", message="Error",
+                    code=code, action="not found or already processed",
+                ),
+                status_code=404,
+            )
         action = "approved" if approved else "rejected"
         logger.info("[AdminAPI] Reservation %s %s via email link.", code, action)
-        return _RESULT_HTML.format(
-            color="#38a169" if approved else "#e53e3e",
-            icon="✅" if approved else "❌",
-            message="Approved!" if approved else "Rejected.",
-            code=code, action=action,
+        return HTMLResponse(
+            content=_RESULT_HTML.format(
+                color="#38a169" if approved else "#e53e3e",
+                icon="✅" if approved else "❌",
+                message="Approved!" if approved else "Rejected.",
+                code=code, action=action,
+            )
         )
 
-    @app.route("/admin/decide_db", methods=["POST"])
-    def api_decide_db():
+    # ── POST /admin/decide_db — web-form reservations ─────────────────────────
+
+    @app.post("/admin/decide_db", response_class=HTMLResponse)
+    async def api_decide_db(
+        code: str = Form(default=""),
+        decision: str = Form(default="reject"),
+        notes: str = Form(default=""),
+    ):
         """Approve or reject a DB-pending reservation submitted via the web form."""
         import src.config as cfg
-        from src.database.operations import approve_pending_reservation, reject_pending_reservation
-        code = request.form.get("code", "")
-        decision = request.form.get("decision", "reject")
-        notes = request.form.get("notes", "")
+        from src.database.operations import (
+            approve_pending_reservation,
+            reject_pending_reservation,
+        )
         approved = (decision == "approve")
-
         if approved:
             ok = approve_pending_reservation(cfg.SQLITE_DB_PATH, code, notes)
         else:
             ok = reject_pending_reservation(cfg.SQLITE_DB_PATH, code, notes)
 
         if not ok:
-            return _RESULT_HTML.format(
-                color="#e53e3e", icon="❌", message="Error",
-                code=code, action="not found — it may have already been processed",
-            ), 404
-
+            return HTMLResponse(
+                content=_RESULT_HTML.format(
+                    color="#e53e3e", icon="❌", message="Error",
+                    code=code, action="not found — it may have already been processed",
+                ),
+                status_code=404,
+            )
         action = "approved" if approved else "rejected"
         logger.info("[AdminAPI] Web-form reservation %s %s (notes: %s)", code, action, notes)
-        return _RESULT_HTML.format(
-            color="#38a169" if approved else "#e53e3e",
-            icon="✅" if approved else "❌",
-            message="Approved!" if approved else "Rejected.",
-            code=code, action=action,
+        return HTMLResponse(
+            content=_RESULT_HTML.format(
+                color="#38a169" if approved else "#e53e3e",
+                icon="✅" if approved else "❌",
+                message="Approved!" if approved else "Rejected.",
+                code=code, action=action,
+            )
         )
 
     return app
@@ -378,7 +436,7 @@ def get_admin_url() -> str:
 
 def start_api_server(host: str = "localhost", port: int = 5001) -> bool:
     """
-    Start the Flask admin API in a daemon thread.
+    Start the FastAPI admin server in a background daemon thread via uvicorn.
     Safe to call multiple times — only starts once.
     Returns True on success.
     """
@@ -392,24 +450,55 @@ def start_api_server(host: str = "localhost", port: int = 5001) -> bool:
         _server_port = port
 
         try:
+            import socket as _socket
+
+            import uvicorn
+
             app = create_app()
+            config = uvicorn.Config(
+                app,
+                host=host,
+                port=port,
+                log_level="error",
+                access_log=False,
+            )
+            server = uvicorn.Server(config)
+            # Signal handlers can only be registered on the main thread;
+            # disable so uvicorn runs safely in a daemon thread.
+            server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
 
             t = threading.Thread(
-                target=lambda: app.run(
-                    host=host,
-                    port=port,
-                    use_reloader=False,
-                    debug=False,
-                ),
+                target=server.run,
                 daemon=True,
                 name="admin-api-server",
             )
             t.start()
+
+            # Poll until the socket is accepting connections (max 10 s).
+            # Always use 127.0.0.1 to avoid Windows IPv6 "localhost" ambiguity.
+            poll_host = "127.0.0.1"
+            deadline = time.monotonic() + 10.0
+            ready = False
+            while time.monotonic() < deadline:
+                try:
+                    with _socket.create_connection((poll_host, port), timeout=0.5):
+                        ready = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+
+            if not ready:
+                logger.warning(
+                    "[AdminAPI] Server did not become ready within 10s on %s:%d.", host, port
+                )
+            else:
+                logger.info(
+                    "[AdminAgent] FastAPI admin server ready: http://%s:%d/admin", host, port
+                )
+
             _server_started = True
-            logger.info(
-                "[AdminAgent] REST API server started: http://%s:%d/admin", host, port
-            )
             return True
+
         except Exception as exc:
             logger.error("[AdminAgent] Failed to start REST API: %s", exc)
             return False

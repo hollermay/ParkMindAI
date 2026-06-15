@@ -12,13 +12,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.evaluation.metrics import (
+    EVAL_DATASET,
+    faithfulness_score,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
-    faithfulness_score,
-    EVAL_DATASET,
 )
-
 
 # ─── Precision@K ─────────────────────────────────────────────────────────────
 
@@ -187,6 +186,7 @@ class TestRetrievalEvaluation:
 
     def test_report_to_dict_serialisable(self):
         import json
+
         from src.evaluation.metrics import evaluate_retrieval
         report = evaluate_retrieval(k=2)
         d = report.to_dict()

@@ -5,7 +5,7 @@ The TypedDict is the single source of truth for all state that flows
 through the graph nodes. Using Annotated[list, add_messages] for the
 `messages` field ensures LangGraph appends rather than replaces messages.
 """
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
@@ -13,8 +13,7 @@ from typing_extensions import TypedDict
 
 class ReservationData(TypedDict, total=False):
     """Incrementally populated during the reservation flow."""
-    first_name: str
-    last_name: str
+    full_name: str
     car_number: str       # vehicle registration plate
     zone: str             # preferred parking zone
     start_date: str       # ISO date string  YYYY-MM-DD

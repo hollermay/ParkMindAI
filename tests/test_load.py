@@ -46,6 +46,7 @@ def load_graph(tmp_path_factory, monkeypatch_session):
     init_db(str(tmp / "load.db"))
 
     from langgraph.checkpoint.memory import MemorySaver
+
     from src.chatbot.graph import build_graph
     return build_graph(checkpointer=MemorySaver())
 
@@ -56,7 +57,8 @@ def mcp_test_client(monkeypatch_session):
     import src.config as cfg
     monkeypatch_session.setattr(cfg, "MCP_API_KEY", "load-test-secret")
     from fastapi.testclient import TestClient
-    from src.mcp_server.server import app, _rate_limits
+
+    from src.mcp_server.server import _rate_limits, app
     _rate_limits.clear()
     return TestClient(app, raise_server_exceptions=True)
 
@@ -227,7 +229,7 @@ class TestAdminDecisionLoad:
             code = ds.generate_request_code()
             with lock:
                 codes.append(code)
-            ds.add_pending(code, {"first_name": f"User{idx}", "car_number": f"CC-{idx:04d}"})
+            ds.add_pending(code, {"full_name": f"User{idx}", "car_number": f"CC-{idx:04d}"})
 
         with ThreadPoolExecutor(max_workers=self.CONCURRENCY) as pool:
             list(pool.map(register, range(self.CONCURRENCY)))
@@ -248,7 +250,7 @@ class TestAdminDecisionLoad:
         for i in range(self.CONCURRENCY):
             code = ds.generate_request_code()
             codes.append(code)
-            ds.add_pending(code, {"first_name": f"Batch{i}"})
+            ds.add_pending(code, {"full_name": f"Batch{i}"})
 
         decided = []
         failed = []
@@ -341,7 +343,7 @@ class TestMCPServerLoad:
         with ThreadPoolExecutor(max_workers=self.CONCURRENCY) as pool:
             list(pool.map(call, range(self.CONCURRENCY)))
 
-        assert not errors, f"MCP write errors under load:\n" + "\n".join(errors)
+        assert not errors, "MCP write errors under load:\n" + "\n".join(errors)
         assert len(results) == self.CONCURRENCY
 
     def test_concurrent_writes_no_file_corruption(self, mcp_test_client, tmp_path, monkeypatch):

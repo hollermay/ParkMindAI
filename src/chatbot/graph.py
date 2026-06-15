@@ -11,7 +11,7 @@ Flow overview:
     │
     ├─── "greeting"    ──────────────────────────────────────────► generate_response ──► apply_guardrails ──► END
     │
-    ├─── "off_topic"   ──────────────────────────────────────────► generate_response ──► apply_guardrails ──► END
+    ├─── "blocked"   ──────────────────────────────────────────► apply_guardrails ──► END
     │
     └─── "reservation" ──► collect_reservation
                                 │
@@ -43,7 +43,6 @@ from src.chatbot.nodes import (
     retrieve_context,
 )
 from src.chatbot.state import ChatInputSchema, ChatState
-from src.reservation.handler import is_complete
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,8 @@ def _route_intent(state: ChatState) -> str:
         return "retrieve_context"
     if intent == "reservation":
         return "collect_reservation"
+    if intent == "blocked":
+        return "apply_guardrails"
     # greeting, off_topic, or anything else → direct LLM response
     return "generate_response"
 
@@ -114,6 +115,7 @@ def build_graph(checkpointer=_UNSET):
             "retrieve_context":    "retrieve_context",
             "collect_reservation": "collect_reservation",
             "generate_response":   "generate_response",
+            "apply_guardrails":    "apply_guardrails",
         },
     )
 

@@ -46,7 +46,7 @@ _EMAIL_HTML = """\
 
   <table>
     <tr><td>Request Code</td><td><strong>{code}</strong></td></tr>
-    <tr><td>Name</td><td>{first_name} {last_name}</td></tr>
+    <tr><td>Name</td><td>{full_name}</td></tr>
     <tr><td>Email</td><td>{email}</td></tr>
     <tr><td>Vehicle Plate</td><td>{car_number}</td></tr>
     <tr><td>Zone</td><td>Zone {zone}</td></tr>
@@ -95,12 +95,11 @@ def send_notification(code: str, reservation_data: dict, api_url: str) -> bool:
     rd = reservation_data
     subject = (
         f"🅿️ SmartPark Reservation Request [{code}] — "
-        f"{rd.get('first_name', '')} {rd.get('last_name', '')} | Zone {rd.get('zone', '')}"
+        f"{rd.get('full_name', '')} | Zone {rd.get('zone', '')}"
     )
     html_body = _EMAIL_HTML.format(
         code=code,
-        first_name=rd.get("first_name", ""),
-        last_name=rd.get("last_name", ""),
+        full_name=rd.get("full_name", ""),
         email=rd.get("email", "—"),
         car_number=rd.get("car_number", ""),
         zone=rd.get("zone", ""),

@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.guardrails.filters import filter_input, filter_output
 
-
 # ─── Input filter — blocked inputs ────────────────────────────────────────────
 
 class TestInputFilterBlocked:

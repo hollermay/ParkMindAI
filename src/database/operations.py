@@ -10,12 +10,20 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from src.database.models import Pricing, ParkingSpace, Reservation, User, WorkingHours, get_engine
+from src.database.models import (
+    ParkingSpace,
+    Pricing,
+    Reservation,
+    User,
+    WorkingHours,
+    get_engine,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _get_session(db_path: str) -> Session:
+    """Return a new Session bound to the shared (cached) engine for db_path."""
     engine = get_engine(db_path)
     return Session(engine)
 
@@ -168,8 +176,7 @@ def _generate_code() -> str:
 
 def create_reservation(
     db_path: str,
-    first_name: str,
-    last_name: str,
+    full_name: str,
     car_number: str,
     zone: str,
     start_datetime: datetime,
@@ -193,8 +200,7 @@ def create_reservation(
         code = _generate_code()
         reservation = Reservation(
             reservation_code=code,
-            first_name=first_name,
-            last_name=last_name,
+            full_name=full_name,
             email=email or None,
             car_number=car_number.upper(),
             card_number=card_number or None,
@@ -222,8 +228,7 @@ def reject_reservation_record(
         code = _generate_code()
         reservation = Reservation(
             reservation_code=code,
-            first_name=reservation_data.get("first_name", ""),
-            last_name=reservation_data.get("last_name", ""),
+            full_name=reservation_data.get("full_name", ""),
             car_number=reservation_data.get("car_number", "").upper(),
             zone=reservation_data.get("zone", ""),
             start_datetime=reservation_data.get("start_datetime"),
@@ -274,8 +279,8 @@ def cleanup_expired_reservations(db_path: str) -> int:
 
             # Mark reservation as completed (audit trail) then delete
             logger.info(
-                "Expiring reservation %s (%s %s, zone %s, ended %s)",
-                res.reservation_code, res.first_name, res.last_name,
+                "Expiring reservation %s (%s, zone %s, ended %s)",
+                res.reservation_code, res.full_name,
                 res.zone, res.end_datetime,
             )
             session.delete(res)
@@ -426,8 +431,7 @@ def finalize_cancellation(db_path: str, code: str, admin_approved: bool, admin_n
 
 def create_pending_reservation(
     db_path: str,
-    first_name: str,
-    last_name: str,
+    full_name: str,
     car_number: str,
     zone: str,
     start_datetime: datetime,
@@ -440,8 +444,7 @@ def create_pending_reservation(
         code = _generate_code()
         reservation = Reservation(
             reservation_code=code,
-            first_name=first_name,
-            last_name=last_name,
+            full_name=full_name,
             email=email or None,
             car_number=car_number.upper(),
             card_number=card_number or None,
@@ -513,8 +516,7 @@ def get_db_pending_reservations(db_path: str) -> list:
 
 def register_user(
     db_path: str,
-    first_name: str,
-    last_name: str,
+    full_name: str,
     email: str,
     password: str,
 ) -> tuple[bool, str]:
@@ -527,7 +529,7 @@ def register_user(
     from werkzeug.security import generate_password_hash
 
     email = email.strip().lower()
-    if not email or not password or not first_name or not last_name:
+    if not email or not password or not full_name:
         return False, "All fields are required."
 
     with _get_session(db_path) as session:
@@ -536,8 +538,7 @@ def register_user(
             return False, "An account with this email already exists."
 
         user = User(
-            first_name=first_name.strip(),
-            last_name=last_name.strip(),
+            full_name=full_name.strip(),
             email=email,
             password_hash=generate_password_hash(password),
         )

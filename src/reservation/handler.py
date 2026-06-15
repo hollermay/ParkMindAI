@@ -5,11 +5,10 @@ Keeps all reservation-domain rules outside the graph nodes to keep
 nodes thin and this module independently testable.
 """
 import re
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Optional, Tuple
 
 from src.chatbot.prompts import RESERVATION_FIELD_ORDER
-
 
 # ─── Valid zones ──────────────────────────────────────────────────────────────
 VALID_ZONES = {"A", "B", "C", "D", "E"}
@@ -29,7 +28,7 @@ def extract_field_value(field: str, user_message: str) -> Tuple[Optional[str], O
     """
     text = user_message.strip()
 
-    if field in ("first_name", "last_name"):
+    if field == "full_name":
         # Accept only letters, hyphens, apostrophes, spaces
         clean = re.sub(r"[^a-zA-Z\-' ]", "", text).strip()
         if not clean:

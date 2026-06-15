@@ -27,7 +27,6 @@ from src.chatbot.prompts import (
     OFF_TOPIC_RESPONSE,
     RAG_ANSWER_PROMPT,
     RESERVATION_APPROVED_TEMPLATE,
-    RESERVATION_FIELD_ORDER,
     RESERVATION_FIELD_PROMPTS,
     RESERVATION_REJECTED_TEMPLATE,
     RESERVATION_SUMMARY_TEMPLATE,
@@ -41,7 +40,7 @@ from src.database.operations import (
     get_availability_summary,
     reject_reservation_record,
 )
-from src.guardrails.filters import filter_output
+from src.guardrails.filters import filter_input, filter_output
 from src.rag.retriever import retrieve
 from src.reservation.handler import (
     extract_field_value,
@@ -61,8 +60,17 @@ logger = logging.getLogger(__name__)
 def _last_human_message(state: ChatState) -> str:
     """Return the content of the most recent HumanMessage in the state."""
     for msg in reversed(state.get("messages", [])):
+        # Proper LangChain HumanMessage object
         if isinstance(msg, HumanMessage):
             return msg.content
+        # Dict format: {"type": "human", "content": "..."}
+        if isinstance(msg, dict) and msg.get("type") in ("human", "user"):
+            return msg.get("content", "")
+        # Object with .type or .role attribute (LangGraph Platform / Studio)
+        msg_type = getattr(msg, "type", None) or getattr(msg, "role", None)
+        if msg_type in ("human", "user"):
+            content = getattr(msg, "content", "")
+            return content if isinstance(content, str) else str(content)
     return ""
 
 
@@ -77,6 +85,17 @@ def classify_intent(state: ChatState) -> Dict[str, Any]:
     Classify the user's intent as one of: info | reservation | greeting | off_topic.
     Skips classification if we're mid-reservation (preserves current flow).
     """
+    # ── Input guardrail — blocks injection/exfiltration before anything else ──
+    user_msg_raw = _last_human_message(state)
+    if user_msg_raw:
+        guard = filter_input(user_msg_raw)
+        if not guard.is_safe:
+            logger.warning("[Guardrails] Input blocked: %s", guard.blocked_reason)
+            return {
+                "intent": "blocked",
+                "messages": [AIMessage(content=guard.blocked_reason)],
+            }
+
     # If we're mid-reservation (either current_field is set, or reservation_data has
     # partial data), preserve the reservation intent without calling the LLM.
     # Note: empty dict {} is falsy, so we check current_field as the primary signal.
@@ -260,7 +279,7 @@ def collect_reservation(state: ChatState) -> Dict[str, Any]:
     # Only extract if the bot has already asked for this field (i.e., at least one
     # AIMessage exists in history). Without this guard, the trigger phrase that
     # started the reservation flow ("I want to book a space") would be mistakenly
-    # extracted as the first_name value.
+    # extracted as the full_name value.
     has_ai_messages = any(isinstance(m, AIMessage) for m in state.get("messages", []))
     extraction_error: str | None = None
     if current_field and user_msg and has_ai_messages:
@@ -447,7 +466,9 @@ def human_approval(state: ChatState) -> Dict[str, Any]:
       graph.invoke(Command(resume={"approved": bool, "notes": str}), config=…)
     """
     import json
+
     from langgraph.types import interrupt
+
     from src.admin_agent.tools import notify_admin
 
     rd = state.get("reservation_data") or {}
@@ -455,7 +476,7 @@ def human_approval(state: ChatState) -> Dict[str, Any]:
     # ── Step 1: Agent 2 — register & notify ──────────────────────────────────
     rd_for_notify = {
         k: rd.get(k, "")
-        for k in ("first_name", "last_name", "car_number", "zone", "start_date", "end_date")
+        for k in ("full_name", "car_number", "zone", "start_date", "end_date")
     }
     request_code = ""
     try:
@@ -479,7 +500,7 @@ def human_approval(state: ChatState) -> Dict[str, Any]:
         "request_code": request_code,
         "message": (
             f"Please approve or reject this parking reservation:\n"
-            f"  Name:    {rd.get('first_name', '')} {rd.get('last_name', '')}\n"
+            f"  Name:    {rd.get('full_name', '')}\n"
             f"  Vehicle: {rd.get('car_number', '')}\n"
             f"  Zone:    Zone {rd.get('zone', '')}\n"
             f"  From:    {rd.get('start_date', '')}  →  {rd.get('end_date', '')}"
@@ -511,8 +532,7 @@ def finalize_reservation(state: ChatState) -> Dict[str, Any]:
         try:
             reservation = create_reservation(
                 db_path=cfg.SQLITE_DB_PATH,
-                first_name=rd.get("first_name", ""),
-                last_name=rd.get("last_name", ""),
+                full_name=rd.get("full_name", ""),
                 car_number=rd.get("car_number", ""),
                 zone=rd.get("zone", "B"),
                 start_datetime=to_datetime(rd["start_date"]),
@@ -539,8 +559,7 @@ def finalize_reservation(state: ChatState) -> Dict[str, Any]:
                 _cost2_str = "N/A"
             resp = RESERVATION_APPROVED_TEMPLATE.format(
                 code=reservation.reservation_code,
-                first_name=rd.get("first_name", ""),
-                last_name=rd.get("last_name", ""),
+                full_name=rd.get("full_name", ""),
                 car_number=rd.get("car_number", ""),
                 zone=rd.get("zone", ""),
                 start_date=rd.get("start_date", ""),
@@ -554,9 +573,10 @@ def finalize_reservation(state: ChatState) -> Dict[str, Any]:
             # ── Persist to MCP server text log ────────────────────────────────
             try:
                 from datetime import datetime, timezone
+
                 from src.mcp_server.client import call_write_confirmed_reservation
                 call_write_confirmed_reservation(
-                    full_name=f"{rd.get('first_name', '')} {rd.get('last_name', '')}".strip(),
+                    full_name=rd.get('full_name', ''),
                     car_number=rd.get("car_number", ""),
                     start_date=rd.get("start_date", ""),
                     end_date=rd.get("end_date", ""),

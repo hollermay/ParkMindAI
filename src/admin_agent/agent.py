@@ -6,12 +6,12 @@ and the human administrator. It:
 
   1. Receives a reservation request from the first agent
   2. Uses the notify_admin tool to register it and alert the administrator
-     (email + REST API dashboard)
+     (REST API dashboard)
   3. Uses the poll_for_decision tool to wait for the administrator's response
   4. Returns the decision (approved / rejected + notes) to the first agent
 
 Built using LangChain 1.x's `create_agent` (LangGraph-based tool-calling agent),
-using the same LLM factory as the first agent (Groq / Gemini / OpenAI / Mock).
+using the same LLM factory as the first agent (Groq / Mock).
 
 Public interface:
   request_admin_approval(reservation_data: dict) -> tuple[bool | None, str]
@@ -26,7 +26,6 @@ from typing import Optional, Tuple
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 
-import src.config as cfg
 from src.admin_agent.tools import get_pending_requests, notify_admin, poll_for_decision
 from src.chatbot.llm import get_llm
 
@@ -84,7 +83,7 @@ def request_admin_approval(
     Invoke the admin agent to notify the administrator and wait for their decision.
 
     Args:
-        reservation_data: dict containing first_name, last_name, car_number,
+        reservation_data: dict containing full_name, car_number,
                           zone, start_date, end_date (collected by the first agent).
 
     Returns:
@@ -95,7 +94,7 @@ def request_admin_approval(
     """
     rd_clean = {
         k: reservation_data.get(k, "")
-        for k in ("first_name", "last_name", "car_number", "zone", "start_date", "end_date")
+        for k in ("full_name", "car_number", "zone", "start_date", "end_date")
     }
     rd_json = json.dumps(rd_clean)
 

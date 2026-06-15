@@ -81,8 +81,7 @@ class Reservation(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     reservation_code = Column(String(20), unique=True, nullable=False, index=True)
     # Guest details
-    first_name = Column(String(100), nullable=False)
-    last_name = Column(String(100), nullable=False)
+    full_name = Column(String(200), nullable=False)
     email = Column(String(255), nullable=True)                # contact email
     car_number = Column(String(30), nullable=False)           # vehicle registration plate
     card_number = Column(String(50), nullable=True)           # masked card, e.g. **** **** **** 1234
@@ -105,25 +104,34 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    first_name = Column(String(100), nullable=False)
-    last_name = Column(String(100), nullable=False)
+    full_name = Column(String(200), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+# Module-level engine cache: one engine (and one connection pool) per DB URL.
+_engine_cache: dict = {}
+
+
 def get_engine(db_url: str):
-    """Return a SQLAlchemy engine for the given database URL.
+    """Return a cached SQLAlchemy engine for the given database URL.
+
+    Engines are cached by URL so the connection pool is shared across all
+    callers, preventing connection exhaustion on PostgreSQL.
 
     Accepts:
     - Full SQLAlchemy URLs:  postgresql://user:pass@host/db  or  sqlite:///path
     - Legacy bare file paths (e.g. /data/parking.db) — treated as SQLite.
       (Used only by tests; production must set DATABASE_URL to a PostgreSQL URL.)
     """
+    if db_url in _engine_cache:
+        return _engine_cache[db_url]
+
     if "://" in db_url:
         if db_url.startswith("postgresql"):
             # PostgreSQL: enable connection health checks, pool recycling, and sizing.
-            return create_engine(
+            engine = create_engine(
                 db_url,
                 echo=False,
                 pool_pre_ping=True,   # validate connections before use
@@ -131,20 +139,25 @@ def get_engine(db_url: str):
                 pool_size=5,
                 max_overflow=10,
             )
-        if db_url.startswith("sqlite"):
+        elif db_url.startswith("sqlite"):
             # SQLite: allow cross-thread access (needed for tests and dev mode).
-            return create_engine(
+            engine = create_engine(
                 db_url,
                 echo=False,
                 connect_args={"check_same_thread": False},
             )
-        return create_engine(db_url, echo=False)
-    # Backward-compat: bare file path → SQLite URL (tests only)
-    return create_engine(
-        f"sqlite:///{db_url}",
-        echo=False,
-        connect_args={"check_same_thread": False},
-    )
+        else:
+            engine = create_engine(db_url, echo=False)
+    else:
+        # Backward-compat: bare file path → SQLite URL (tests only)
+        engine = create_engine(
+            f"sqlite:///{db_url}",
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+
+    _engine_cache[db_url] = engine
+    return engine
 
 
 def _migrate_schema(engine) -> None:

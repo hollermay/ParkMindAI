@@ -1,8 +1,13 @@
 """
 LLM factory — returns a LangChain chat model for the configured provider.
-Supported providers: groq, gemini, openai, mock (set LLM_PROVIDER in .env).
+Supported providers: groq, mock (set LLM_PROVIDER in .env).
 """
 import logging
+from typing import Any, List, Optional
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 import src.config as cfg
 
@@ -14,10 +19,8 @@ def get_llm(temperature: float = 0.2):
     Return a LangChain chat model based on LLM_PROVIDER in .env.
 
     Priority:
-      1. LLM_PROVIDER=groq    → ChatGroq (requires GROQ_API_KEY)
-      2. LLM_PROVIDER=gemini  → ChatGoogleGenerativeAI (requires GEMINI_API_KEY)
-      3. LLM_PROVIDER=openai  → ChatOpenAI (requires OPENAI_API_KEY)
-      4. Anything else / no key → MockLLM (offline demo)
+      1. LLM_PROVIDER=groq → ChatGroq (requires GROQ_API_KEY)
+      2. Anything else / no key → MockLLM (offline demo)
     """
     provider = cfg.LLM_PROVIDER.lower()
 
@@ -39,62 +42,33 @@ def get_llm(temperature: float = 0.2):
             temperature=temperature,
         )
 
-    if provider == "gemini":
-        if not cfg.GEMINI_API_KEY:
-            logger.warning("LLM_PROVIDER=gemini but GEMINI_API_KEY is not set — falling back to MockLLM.")
-            return _MockLLM()
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-        except ImportError as exc:
-            raise ImportError(
-                "langchain-google-genai is required for Gemini. "
-                "Run: pip install langchain-google-genai"
-            ) from exc
-        logger.info("Using Gemini model: %s", cfg.GEMINI_MODEL)
-        return ChatGoogleGenerativeAI(
-            model=cfg.GEMINI_MODEL,
-            google_api_key=cfg.GEMINI_API_KEY,
-            temperature=temperature,
-            convert_system_message_to_human=True,
-        )
-
-    if provider == "openai":
-        if not cfg.OPENAI_API_KEY:
-            logger.warning("LLM_PROVIDER=openai but OPENAI_API_KEY is not set — falling back to MockLLM.")
-            return _MockLLM()
-        from langchain_openai import ChatOpenAI
-        logger.info("Using OpenAI model: %s", cfg.OPENAI_MODEL)
-        return ChatOpenAI(
-            model=cfg.OPENAI_MODEL,
-            temperature=temperature,
-            openai_api_key=cfg.OPENAI_API_KEY,
-        )
-
     logger.warning("No valid LLM provider configured — using MockLLM.")
     return _MockLLM()
 
 
-class _MockLLM:
+class _MockLLM(BaseChatModel):
     """
-    Minimal mock LLM for offline testing / demo without an OpenAI API key.
-    Returns template-based responses rather than real LLM completions.
+    Minimal mock LLM for offline testing / demo without an API key.
+    Inherits BaseChatModel so it is a proper LangChain Runnable and works
+    in chains like ``prompt | llm | StrOutputParser()``.
     """
 
-    def invoke(self, messages):
-        from langchain_core.messages import AIMessage
+    @property
+    def _llm_type(self) -> str:
+        return "mock"
 
-        # Extract text from the last human message
-        if isinstance(messages, list):
-            last_human = next(
-                (m for m in reversed(messages) if hasattr(m, "type") and m.type == "human"),
-                None,
-            )
-            content = last_human.content if last_human else ""
-        elif hasattr(messages, "messages"):
-            content = str(messages)
-        else:
-            content = str(messages)
-
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        last_human = next(
+            (m for m in reversed(messages) if getattr(m, "type", None) == "human"),
+            None,
+        )
+        content = last_human.content if last_human else ""
         content_lower = content.lower()
 
         if any(w in content_lower for w in ["price", "cost", "rate", "fee", "charge"]):
@@ -116,18 +90,13 @@ class _MockLLM:
                 "Opposite City Hall, 200m east of Central Station."
             )
         elif any(w in content_lower for w in ["classify", "intent"]):
-            # Intent node uses this; default to 'info'
             reply = "info"
         elif any(w in content_lower for w in ["hello", "hi", "hey", "greet"]):
             reply = "Hello! Welcome to SmartPark City Center. How can I help you today?"
         else:
             reply = (
-                "[Mock mode — no OpenAI key] I can help with parking info and reservations. "
-                "Please set OPENAI_API_KEY in your .env for full AI-powered responses."
+                "[Mock mode — no API key] I can help with parking info and reservations. "
+                "Please set LLM_PROVIDER and the corresponding API key in your .env for "
+                "full AI-powered responses."
             )
-        return AIMessage(content=reply)
-
-    def __or__(self, other):
-        """Support `llm | parser` chaining."""
-        from langchain_core.runnables import RunnableSequence
-        return RunnableSequence(first=self, last=other)
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=reply))])

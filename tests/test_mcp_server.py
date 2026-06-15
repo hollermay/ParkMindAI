@@ -17,9 +17,8 @@ Coverage:
   TestMCPClientClass      — MCPClient health_check and base_url resolution
 """
 import sys
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -32,9 +31,7 @@ from fastapi.testclient import TestClient
 import src.config as cfg
 from src.mcp_server.server import (
     WriteReservationInput,
-    _handle_mcp_message,
     _rate_limits,
-    _write_reservation_to_file,
     app,
 )
 
@@ -183,8 +180,9 @@ class TestMCPRateLimiter:
 
     def test_exceeding_limit_returns_429(self, client, monkeypatch):
         """Simulate the rate limiter being hit by injecting a pre-filled window."""
-        from src.mcp_server import server as srv
         import time as _time
+
+        from src.mcp_server import server as srv
 
         # Pre-fill the limiter at the max count for the test IP (testclient uses "testclient")
         test_ip = "testclient"
@@ -199,8 +197,9 @@ class TestMCPRateLimiter:
 
     def test_window_reset_allows_new_requests(self, client, monkeypatch):
         """An expired window should reset the counter."""
-        from src.mcp_server import server as srv
         import time as _time
+
+        from src.mcp_server import server as srv
 
         test_ip = "testclient"
         # Put a full window that started 120 seconds ago (well past the 60s window)
@@ -397,8 +396,8 @@ class TestMCPFileWrite:
             full_name="Pipe Test",
             car_number="PT-1234",
         ), headers=_AUTH_HEADER)
-        lines = [l for l in tmp_reservations_file.read_text(encoding="utf-8").splitlines()
-                 if "Pipe Test" in l]
+        lines = [line for line in tmp_reservations_file.read_text(encoding="utf-8").splitlines()
+                 if "Pipe Test" in line]
         assert len(lines) == 1
         parts = lines[0].split(" | ")
         assert len(parts) == 4
@@ -413,7 +412,7 @@ class TestMCPInjectionDefence:
         client.post("/mcp", json=_tool_call_body(full_name="Evil | Name"), headers=_AUTH_HEADER)
         content = tmp_reservations_file.read_text(encoding="utf-8")
         # The pipe in the name should be replaced with '-'
-        data_lines = [l for l in content.splitlines() if "Evil" in l]
+        data_lines = [line for line in content.splitlines() if "Evil" in line]
         assert len(data_lines) == 1
         # Only 3 real delimiter pipes expected (4 fields)
         assert data_lines[0].count(" | ") == 3
@@ -424,7 +423,7 @@ class TestMCPInjectionDefence:
         ), headers=_AUTH_HEADER)
         content = tmp_reservations_file.read_text(encoding="utf-8")
         # The injected newline should be collapsed — no blank line in the entry
-        data_lines = [l for l in content.splitlines() if "Alice" in l]
+        data_lines = [line for line in content.splitlines() if "Alice" in line]
         assert len(data_lines) == 1
 
     def test_carriage_return_stripped(self, client, tmp_reservations_file):
@@ -437,7 +436,7 @@ class TestMCPInjectionDefence:
     def test_pipe_in_car_number_is_replaced(self, client, tmp_reservations_file):
         client.post("/mcp", json=_tool_call_body(car_number="AB|1234"), headers=_AUTH_HEADER)
         content = tmp_reservations_file.read_text(encoding="utf-8")
-        data_lines = [l for l in content.splitlines() if "AB" in l and "1234" in l]
+        data_lines = [line for line in content.splitlines() if "AB" in line and "1234" in line]
         assert len(data_lines) == 1
         assert "AB|1234" not in data_lines[0]
 
@@ -659,6 +658,7 @@ class TestMCPClientClass:
         monkeypatch.setattr(cfg, "MCP_SERVER_HOST", "localhost")
         monkeypatch.setattr(cfg, "MCP_SERVER_PORT", 5002)
         from importlib import reload
+
         import src.mcp_server.client as client_mod
         reload(client_mod)
         c = client_mod.MCPClient()

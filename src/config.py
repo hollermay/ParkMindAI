@@ -15,23 +15,13 @@ DATA_DIR = BASE_DIR / "data"
 STATIC_DATA_PATH = str(DATA_DIR / "static" / "parking_info.json")
 
 # ─── LLM ─────────────────────────────────────────────────────────────────────
-# Provider: "groq" | "openai" | "gemini" | "mock"
+# Provider: "groq" | "mock"
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq")
 
 # Groq
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-
-# OpenAI
-OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-# Google Gemini
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-
 # ─── Embeddings ───────────────────────────────────────────────────────────────
-USE_OPENAI_EMBEDDINGS: bool = os.getenv("USE_OPENAI_EMBEDDINGS", "false").lower() == "true"
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 # ─── Vector Store ─────────────────────────────────────────────────────────────

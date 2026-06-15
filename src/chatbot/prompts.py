@@ -2,7 +2,7 @@
 Prompt templates used by all graph nodes.
 Keeping prompts separate from node logic makes them easy to iterate on.
 """
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 
 # ─── System identity ──────────────────────────────────────────────────────────
 SYSTEM_PERSONA = (
@@ -52,13 +52,12 @@ GENERAL_RESPONSE_PROMPT = ChatPromptTemplate.from_messages([
 
 # ─── Reservation: field collection ────────────────────────────────────────────
 RESERVATION_FIELD_PROMPTS = {
-    "first_name": (
+    "full_name": (
         "I'd be happy to help you reserve a parking space at SmartPark City Center! "
-        "Let's start — what is your **first name**?"
+        "Let's start — what is your **full_name**?"
     ),
-    "last_name": "Thank you, {first_name}! What is your **last name / surname**?",
     "car_number": (
-        "Great, {first_name} {last_name}! "
+        "Great, {full_name}! "
         "Please provide your **vehicle registration plate number** (e.g., ABC-1234)."
     ),
     "zone": (
@@ -93,14 +92,14 @@ RESERVATION_FIELD_PROMPTS = {
     ),
 }
 
-RESERVATION_FIELD_ORDER = ["first_name", "last_name", "car_number", "zone",
+RESERVATION_FIELD_ORDER = ["full_name", "car_number", "zone",
                            "start_date", "end_date"]
 
 RESERVATION_SUMMARY_TEMPLATE = """Here is a summary of your reservation request:
 
 ```
-  Name      : {first_name} {last_name}
-  Email     : {email_masked}
+  Name      : {full_name}
+  Email     : (your registered account email)
   Vehicle   : {car_number}
   Zone      : Zone {zone}
   Start     : {start_date}
@@ -110,7 +109,7 @@ RESERVATION_SUMMARY_TEMPLATE = """Here is a summary of your reservation request:
   Card      : {card_masked}
 ```
 
-Your request has been sent for **administrator approval**.  
+Your request has been sent for **administrator approval**.
 You will receive confirmation shortly.
 """
 
@@ -118,7 +117,7 @@ RESERVATION_APPROVED_TEMPLATE = """✅ **Your reservation has been APPROVED!**
 
 ```
   Reservation Code : {code}
-  Name             : {first_name} {last_name}
+  Name             : {full_name}
   Vehicle          : {car_number}
   Zone             : Zone {zone}
   Start Date       : {start_date}
@@ -128,8 +127,8 @@ RESERVATION_APPROVED_TEMPLATE = """✅ **Your reservation has been APPROVED!**
   Card             : {card_masked}
 ```
 
-A confirmation has been sent to your registered email address.  
-Please **save your reservation code** — you'll need it at the barrier.  
+A confirmation has been sent to your registered email address.
+Please **save your reservation code** — you'll need it at the barrier.
 Thank you for choosing SmartPark City Center!
 """
 
@@ -156,7 +155,7 @@ ADMIN_APPROVAL_BANNER = """
 ╚══════════════════════════════════════════════════════╝
 
 Reservation Details:
-  Name    : {first_name} {last_name}
+  Name    : {full_name}
   Email   : {email}
   Vehicle : {car_number}
   Zone    : {zone}

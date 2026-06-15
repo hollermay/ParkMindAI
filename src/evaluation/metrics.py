@@ -17,7 +17,7 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -275,14 +275,15 @@ def evaluate_retrieval(k: int = 4) -> EvaluationReport:
 def evaluate_full_pipeline(k: int = 4) -> EvaluationReport:
     """
     Full pipeline evaluation including LLM generation and faithfulness scoring.
-    Requires OPENAI_API_KEY (or uses MockLLM in offline mode).
+    Uses Groq or MockLLM in offline mode.
     """
     from langchain_core.output_parsers import StrOutputParser
+
+    import src.config as cfg
     from src.chatbot.llm import get_llm
     from src.chatbot.prompts import RAG_ANSWER_PROMPT
-    from src.database.operations import format_pricing_context, format_hours_context
-    import src.config as cfg
     from src.database.models import init_db
+    from src.database.operations import format_pricing_context
     from src.rag.retriever import retrieve
 
     init_db(cfg.SQLITE_DB_PATH)

@@ -13,12 +13,9 @@ exercise HTTP behaviour (routes, status codes, JSON shape, session handling)
 without invoking real LLMs or requiring a running database.
 """
 import json
-import threading
-import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,7 +114,7 @@ def app_client_interrupted(tmp_path, monkeypatch):
 
     # Pre-register the code so the frontend doesn't try to re-register
     from src.admin_agent import decision_store
-    decision_store.add_pending(request_code, {"first_name": "Test"})
+    decision_store.add_pending(request_code, {"full_name": "Test User"})
 
     with patch("src.chatbot.graph.get_graph", return_value=stub):
         frontend_module.app.config["TESTING"] = True
@@ -355,14 +352,13 @@ class TestCancelRoute:
         from src.database.models import init_db
         init_db(db_path)
 
-        from src.database.operations import create_reservation, get_reservation_by_code
-        from src.database import operations as db_ops
-        import src.database.operations as _ops
 
         # Create an approved reservation with a future start_date via direct ORM
-        from datetime import date, timedelta, datetime
-        from src.database.models import get_engine, Base, Reservation, ParkingSpace
+        from datetime import date, datetime, timedelta
+
         from sqlalchemy.orm import sessionmaker
+
+        from src.database.models import Reservation, get_engine
 
         engine = get_engine(db_path)
         Session = sessionmaker(bind=engine)
@@ -372,8 +368,7 @@ class TestCancelRoute:
             code = "SP-CANCEL01"
             res = Reservation(
                 reservation_code=code,
-                first_name="Test",
-                last_name="User",
+                full_name="Test User",
                 car_number="TC-0001",
                 zone="A",
                 start_datetime=start_dt,

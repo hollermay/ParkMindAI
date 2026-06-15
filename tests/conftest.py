@@ -1,9 +1,7 @@
 """
 Shared pytest fixtures for the SmartPark chatbot test suite.
 """
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest

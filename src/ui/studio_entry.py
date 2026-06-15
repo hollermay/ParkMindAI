@@ -19,15 +19,15 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-import src.config as cfg
-from src.database.models import init_db
+import src.config as cfg  # noqa: E402
+from src.database.models import init_db  # noqa: E402
 
 # ── One-time initialisation ───────────────────────────────────────────────────
 # The database must exist before the first graph invocation.
 init_db(cfg.SQLITE_DB_PATH)
 
 # ── Build graph ───────────────────────────────────────────────────────────────
-from src.chatbot.graph import build_graph
+from src.chatbot.graph import build_graph  # noqa: E402
 
 # LangGraph Platform (Studio / Cloud) handles persistence itself.
 # Passing checkpointer=None tells build_graph to compile without one.
